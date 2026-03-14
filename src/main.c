@@ -1,1305 +1,1150 @@
 /*
- * Math Solver CE  v1.0
+ * MathSolverCE  v2.0
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
- * Topics:
- *   - Linear & Quadratic Equations
- *   - Linear Inequalities
- *   - Absolute Value Equations & Inequalities
- *     (including nested abs-val forms)
- *   - Systems of Equations (2x2 and 3x3)
- *   - Coordinate Geometry (distance, midpoint,
- *     slope, line equations, parallel/perp.)
- *   - Formula Reference Pages
+ * Menus:
+ *   Main Menu
+ *     1. Equations & Inequalities
+ *           1. Linear Equation
+ *           2. Quadratic Equation
+ *           3. Linear Inequality
+ *           4. Three-Way Inequality
+ *     2. Absolute Value
+ *           1. |Ax+B| = C
+ *           2. |Ax+B| op C
+ *           3. ||Ax+B|-C| op D  (nested)
+ *     3. Formula Reference
+ *     4. Quit
  *
- * Navigation:
- *   Number keys  -> select menu item
- *   [CLEAR]      -> back / quit
- *   [ENTER]      -> confirm input
- *   [(-)]        -> negative sign in input
- *   [DEL]        -> backspace in input
- *   [.]          -> decimal point in input
+ * Key legend:
+ *   [1-9]    select menu item
+ *   [CLEAR]  back / quit
+ *   [ENTER]  confirm number entry
+ *   [(-)  ]  toggle negative sign
+ *   [.    ]  decimal point
+ *   [DEL  ]  backspace
  */
 
-#include <tice.h>
-#include <ti/screen.h>
+#include <graphx.h>
 #include <ti/getcsc.h>
+#include <tice.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
 #include <stdbool.h>
 
+/* ═══════════════════════════════════════════════
+   PALETTE INDICES
+   ═══════════════════════════════════════════════ */
+#define COL_WHITE   0
+#define COL_BLACK   1
+#define COL_NAVY    2
+#define COL_ORANGE  3
+#define COL_GREEN   4
+#define COL_RED     5
+#define COL_GRAY    6
+#define COL_LTGRAY  7
+#define COL_YELLOW  8
+
+static const uint16_t kPalette[] = {
+    gfx_RGBTo1555(255, 255, 255),  /* 0  white    body bg           */
+    gfx_RGBTo1555(  0,   0,   0),  /* 1  black    body text         */
+    gfx_RGBTo1555( 10,  35,  88),  /* 2  navy     header / footer   */
+    gfx_RGBTo1555(215, 115,   0),  /* 3  orange   accent / numbers  */
+    gfx_RGBTo1555(  0, 148,  58),  /* 4  green    solution text     */
+    gfx_RGBTo1555(195,  22,  22),  /* 5  red      no solution       */
+    gfx_RGBTo1555(145, 145, 145),  /* 6  gray     dividers          */
+    gfx_RGBTo1555(215, 215, 215),  /* 7  lt-gray  alt row tint      */
+    gfx_RGBTo1555(255, 200,   0),  /* 8  yellow   header title      */
+};
+
+/* ═══════════════════════════════════════════════
+   SCREEN LAYOUT
+   ═══════════════════════════════════════════════ */
+#define SCR_W        320
+#define SCR_H        240
+#define HDR_H         22
+#define FTR_H         18
+#define BODY_TOP      26
+#define LINE_H        13
+#define MAX_LINES     15
+#define LMARGIN        8
+
+static const double MATH_EPS = 1e-9;
+static const char  *kOpStr[4] = { "<", "<=", ">", ">=" };
+
+/* Current body row (0-based), reset by startScreen() */
+static int gCurrentLine = 0;
+
+/* ═══════════════════════════════════════════════
+   DRAW HELPERS
+   ═══════════════════════════════════════════════ */
+
+static void drawHeader(const char *title)
+{
+    gfx_SetColor(COL_NAVY);
+    gfx_FillRectangle_NoClip(0, 0, SCR_W, HDR_H);
+    gfx_SetColor(COL_ORANGE);
+    gfx_FillRectangle_NoClip(0, HDR_H - 2, SCR_W, 2);
+    int titleWidth = gfx_GetStringWidth(title);
+    gfx_SetTextFGColor(COL_YELLOW);
+    gfx_SetTextBGColor(COL_NAVY);
+    gfx_PrintStringXY(title, (SCR_W - titleWidth) / 2, (HDR_H - 8) / 2);
+}
+
+static void drawFooter(const char *hint)
+{
+    int fy = SCR_H - FTR_H;
+    gfx_SetColor(COL_GRAY);
+    gfx_FillRectangle_NoClip(0, fy, SCR_W, 1);
+    gfx_SetColor(COL_NAVY);
+    gfx_FillRectangle_NoClip(0, fy + 1, SCR_W, FTR_H - 1);
+    gfx_SetTextFGColor(COL_LTGRAY);
+    gfx_SetTextBGColor(COL_NAVY);
+    gfx_PrintStringXY(hint, LMARGIN, fy + (FTR_H - 8) / 2);
+}
+
+static void startScreen(const char *title, const char *footerHint)
+{
+    gfx_FillScreen(COL_WHITE);
+    drawHeader(title);
+    drawFooter(footerHint);
+    gCurrentLine = 0;
+}
+
+static void blit(void) { gfx_BlitBuffer(); }
+
 /* ─────────────────────────────────────────────
-   CONSTANTS
-   ───────────────────────────────────────────── */
-#define EPSILON     1e-9
-#define MAX_NBUF    22      /* max chars in a number input buffer */
-#define LINE_SZ     28      /* scratch-line buffer  (26 cols + \0 + 1) */
-
-/* ─────────────────────────────────────────────
-   UTILITY LAYER
+   Body-line printing helpers
    ───────────────────────────────────────────── */
 
-/* Clear home screen */
-static void clr(void)
+static void printLine(const char *text, uint8_t colour)
 {
-    os_ClrHome();
+    if (gCurrentLine >= MAX_LINES) return;
+    int y = BODY_TOP + gCurrentLine * LINE_H;
+    gfx_SetTextFGColor(colour);
+    gfx_SetTextBGColor(COL_WHITE);
+    gfx_PrintStringXY(text, LMARGIN, y);
+    gCurrentLine++;
 }
 
-/* Print string + newline */
-static void pln(const char *s)
+static void printLineIndented(const char *text, uint8_t colour, int extraX)
 {
-    os_PutStrFull(s);
-    os_NewLine();
+    if (gCurrentLine >= MAX_LINES) return;
+    int y = BODY_TOP + gCurrentLine * LINE_H;
+    gfx_SetTextFGColor(colour);
+    gfx_SetTextBGColor(COL_WHITE);
+    gfx_PrintStringXY(text, LMARGIN + extraX, y);
+    gCurrentLine++;
 }
 
-/* 26-char divider */
-static void divider(void)
+static void printSubheader(const char *label)
 {
-    pln("--------------------------");
+    if (gCurrentLine >= MAX_LINES) return;
+    int y = BODY_TOP + gCurrentLine * LINE_H;
+    gfx_SetColor(COL_LTGRAY);
+    gfx_FillRectangle_NoClip(0, y - 1, SCR_W, LINE_H + 1);
+    gfx_SetTextFGColor(COL_NAVY);
+    gfx_SetTextBGColor(COL_LTGRAY);
+    gfx_PrintStringXY(label, LMARGIN, y);
+    gCurrentLine++;
 }
 
-/* Wait for any key, showing a prompt */
-static void any_key(void)
+static void printDivider(void)
 {
-    pln("[Press any key]");
-    while (!os_GetCSC());
+    if (gCurrentLine >= MAX_LINES) return;
+    int y = BODY_TOP + gCurrentLine * LINE_H + LINE_H / 2;
+    gfx_SetColor(COL_GRAY);
+    gfx_FillRectangle_NoClip(LMARGIN, y, SCR_W - LMARGIN * 2, 1);
+    gCurrentLine++;
 }
 
-/* Format a double to string.
-   Shows as integer when value is whole, else uses %g style. */
-static void fmt(char *buf, size_t sz, double v)
+static void printBlank(void)
 {
-    if (fabs(v) < EPSILON) {
-        snprintf(buf, sz, "0");
-    } else if (fabs(v - round(v)) < EPSILON * (1.0 + fabs(v))) {
-        snprintf(buf, sz, "%.0f", round(v));
-    } else {
-        snprintf(buf, sz, "%.5g", v);
-    }
+    if (gCurrentLine < MAX_LINES) gCurrentLine++;
 }
 
-/* Print a formatted double followed by a newline */
-static void pdln(double v)
-{
-    char buf[32];
-    fmt(buf, sizeof(buf), v);
-    pln(buf);
-}
+/* ═══════════════════════════════════════════════
+   KEY / WAIT HELPERS
+   ═══════════════════════════════════════════════ */
 
-/* ─────────────────────────────────────────────
-   NUMBER INPUT
-   Displays prompt, then lets the user type a
-   floating-point number using digit keys.
-   Returns the entered value (0.0 on empty Enter).
-   ───────────────────────────────────────────── */
-static double get_num(const char *prompt)
+static uint8_t waitForKey(void)
 {
-    char buf[MAX_NBUF + 1];
-    int  len     = 0;
-    bool hasDot  = false;
     uint8_t key;
-    unsigned int row, col;
+    do { key = os_GetCSC(); } while (key == 0);
+    return key;
+}
 
-    os_PutStrFull(prompt);
-    os_GetCursorPos(&row, &col);
-    buf[0] = '\0';
+static void waitContinue(void)
+{
+    drawFooter("[ENTER] Back to Menu");
+    blit();
+    uint8_t key;
+    do { key = waitForKey(); } while (key != sk_Enter && key != sk_Clear);
+}
+
+/* ═══════════════════════════════════════════════
+   NUMBER INPUT
+   ═══════════════════════════════════════════════ */
+
+#define MAX_INPUT_LEN 18
+
+static double inputNumber(const char *prompt)
+{
+    char inputBuf[MAX_INPUT_LEN + 1];
+    int  inputLen  = 0;
+    bool hasDot    = false;
+    int  savedLine = gCurrentLine;
+
+    inputBuf[0] = '\0';
 
     for (;;) {
-        /* Redraw the buffer at saved cursor position */
-        os_SetCursorPos(row, col);
-        os_PutStrFull(buf);
-        os_PutStrFull("_ ");            /* blinking-style cursor indicator */
+        int rowY = BODY_TOP + savedLine * LINE_H;
+        gfx_SetColor(COL_WHITE);
+        gfx_FillRectangle_NoClip(0, rowY - 1, SCR_W, LINE_H + 2);
 
-        /* Block until a key arrives */
-        do { key = os_GetCSC(); } while (!key);
+        int promptW = gfx_GetStringWidth(prompt);
+        gfx_SetTextFGColor(COL_NAVY);
+        gfx_SetTextBGColor(COL_WHITE);
+        gfx_PrintStringXY(prompt, LMARGIN, rowY);
+
+        char displayBuf[MAX_INPUT_LEN + 4];
+        snprintf(displayBuf, sizeof(displayBuf), "%s_", inputBuf);
+        gfx_SetTextFGColor(COL_BLACK);
+        gfx_SetTextBGColor(COL_WHITE);
+        int valueX = LMARGIN + promptW + 4;
+        gfx_PrintStringXY(displayBuf, valueX, rowY);
+
+        gfx_SetColor(COL_GRAY);
+        gfx_FillRectangle_NoClip(valueX, rowY + 9, SCR_W - valueX - LMARGIN, 1);
+        blit();
+
+        uint8_t key = waitForKey();
 
         if (key == sk_Enter) {
-            /* Accept whatever is in buffer (including empty → 0) */
-            os_SetCursorPos(row, col);
-            os_PutStrFull(buf);
-            os_PutStrFull("   ");
-            os_NewLine();
-            return atof(buf);
-
-        } else if (key == sk_Del && len > 0) {
-            if (buf[len - 1] == '.') hasDot = false;
-            buf[--len] = '\0';
-
-        } else if (key == sk_Chs) {
-            /* Toggle leading minus sign */
-            if (len > 0 && buf[0] == '-') {
-                memmove(buf, buf + 1, (size_t)len);
-                len--;
-            } else if (len < MAX_NBUF - 1) {
-                memmove(buf + 1, buf, (size_t)(len + 1));
-                buf[0] = '-';
-                len++;
+            gCurrentLine = savedLine + 1;
+            return (inputLen == 0) ? 0.0 : atof(inputBuf);
+        }
+        if (key == sk_Del && inputLen > 0) {
+            if (inputBuf[inputLen - 1] == '.') hasDot = false;
+            inputBuf[--inputLen] = '\0';
+            continue;
+        }
+        if (key == sk_Chs) {
+            if (inputLen > 0 && inputBuf[0] == '-') {
+                memmove(inputBuf, inputBuf + 1, (size_t)inputLen);
+                inputLen--;
+            } else if (inputLen < MAX_INPUT_LEN - 1) {
+                memmove(inputBuf + 1, inputBuf, (size_t)(inputLen + 1));
+                inputBuf[0] = '-';
+                inputLen++;
             }
-
-        } else if (key == sk_DecPnt && !hasDot && len < MAX_NBUF - 1) {
-            /* If buffer is empty, prepend '0' for clarity */
-            if (len == 0 || buf[len-1] == '-') {
-                buf[len++] = '0';
+            continue;
+        }
+        if (key == sk_DecPnt && !hasDot && inputLen < MAX_INPUT_LEN - 1) {
+            if (inputLen == 0 || inputBuf[inputLen - 1] == '-') {
+                inputBuf[inputLen++] = '0';
+                inputBuf[inputLen]   = '\0';
             }
-            buf[len++] = '.';
-            buf[len]   = '\0';
+            inputBuf[inputLen++] = '.';
+            inputBuf[inputLen]   = '\0';
             hasDot = true;
-
-        } else {
-            /* Digit keys */
-            char c = 0;
-            switch (key) {
-                case sk_0: c = '0'; break;
-                case sk_1: c = '1'; break;
-                case sk_2: c = '2'; break;
-                case sk_3: c = '3'; break;
-                case sk_4: c = '4'; break;
-                case sk_5: c = '5'; break;
-                case sk_6: c = '6'; break;
-                case sk_7: c = '7'; break;
-                case sk_8: c = '8'; break;
-                case sk_9: c = '9'; break;
-                default:   break;
-            }
-            if (c && len < MAX_NBUF - 1) {
-                buf[len++] = c;
-                buf[len]   = '\0';
-            }
-        }
-    }
-}
-
-/* ─────────────────────────────────────────────
-   MENU ENGINE
-   Shows a titled list of options; returns the
-   0-based index of the chosen item, or -1 if
-   [CLEAR] was pressed (back / quit).
-   ───────────────────────────────────────────── */
-static int menu(const char *title, const char **opts, int n)
-{
-    uint8_t key;
-    for (;;) {
-        clr();
-        pln(title);
-        divider();
-        for (int i = 0; i < n; i++) {
-            char line[LINE_SZ];
-            snprintf(line, sizeof(line), "%d: %s", i + 1, opts[i]);
-            pln(line);
+            continue;
         }
 
-        do { key = os_GetCSC(); } while (!key);
-
-        if (key == sk_Clear) return -1;
-
-        int num = -1;
+        char digitChar = '\0';
         switch (key) {
-            case sk_1: num = 0; break;
-            case sk_2: num = 1; break;
-            case sk_3: num = 2; break;
-            case sk_4: num = 3; break;
-            case sk_5: num = 4; break;
-            case sk_6: num = 5; break;
-            case sk_7: num = 6; break;
-            case sk_8: num = 7; break;
-            case sk_9: num = 8; break;
+            case sk_0: digitChar = '0'; break;
+            case sk_1: digitChar = '1'; break;
+            case sk_2: digitChar = '2'; break;
+            case sk_3: digitChar = '3'; break;
+            case sk_4: digitChar = '4'; break;
+            case sk_5: digitChar = '5'; break;
+            case sk_6: digitChar = '6'; break;
+            case sk_7: digitChar = '7'; break;
+            case sk_8: digitChar = '8'; break;
+            case sk_9: digitChar = '9'; break;
             default:   break;
         }
-        if (num >= 0 && num < n) return num;
+        if (digitChar && inputLen < MAX_INPUT_LEN - 1) {
+            inputBuf[inputLen++] = digitChar;
+            inputBuf[inputLen]   = '\0';
+        }
     }
 }
 
-/* ─────────────────────────────────────────────
-   INEQUALITY-OPERATOR SELECTION
-   Returns 0 (<)  1 (<=)  2 (>)  3 (>=)  -1 (cancel)
-   ───────────────────────────────────────────── */
-static int pick_ineq_op(void)
+/* ═══════════════════════════════════════════════
+   OPERATOR SELECTION
+   Returns 0=<  1=<=  2=>  3=>=  -1=CLEAR
+   ═══════════════════════════════════════════════ */
+
+static int inputOperator(const char *promptLabel)
 {
-    pln("Choose inequality:");
-    pln("1:<  2:<=  3:>  4:>=");
-    uint8_t key;
-    do { key = os_GetCSC(); } while (!key);
-    switch (key) {
-        case sk_1: return 0;
-        case sk_2: return 1;
-        case sk_3: return 2;
-        case sk_4: return 3;
-        default:   return -1;
+    int labelRow  = gCurrentLine;
+    int choiceRow = gCurrentLine + 1;
+    gCurrentLine += 2;
+
+    gfx_SetTextFGColor(COL_NAVY);
+    gfx_SetTextBGColor(COL_WHITE);
+    gfx_PrintStringXY(promptLabel,
+                      LMARGIN, BODY_TOP + labelRow * LINE_H);
+
+    gfx_SetTextFGColor(COL_ORANGE);
+    gfx_SetTextBGColor(COL_WHITE);
+    gfx_PrintStringXY("1:<  2:<=  3:>  4:>=",
+                      LMARGIN + 12, BODY_TOP + choiceRow * LINE_H);
+    blit();
+
+    for (;;) {
+        uint8_t key = waitForKey();
+        if (key == sk_Clear) return -1;
+        if (key == sk_1) return 0;
+        if (key == sk_2) return 1;
+        if (key == sk_3) return 2;
+        if (key == sk_4) return 3;
     }
 }
 
-static const char *op_str[4] = { "<", "<=", ">", ">=" };
+/* ═══════════════════════════════════════════════
+   NUMBER FORMATTING
+   ═══════════════════════════════════════════════ */
+
+static void formatNumber(char *outBuf, size_t bufSize, double value)
+{
+    if (fabs(value) < MATH_EPS) {
+        snprintf(outBuf, bufSize, "0");
+    } else if (fabs(value - round(value)) < MATH_EPS * (1.0 + fabs(value))) {
+        snprintf(outBuf, bufSize, "%.0f", round(value));
+    } else {
+        snprintf(outBuf, bufSize, "%.5g", value);
+    }
+}
+
+/* ═══════════════════════════════════════════════
+   MENU ENGINE
+   ═══════════════════════════════════════════════ */
+
+static int showMenu(const char *title, const char *options[], int optionCount)
+{
+    for (;;) {
+        startScreen(title, "[#] Select    [CLEAR] Back");
+
+        for (int i = 0; i < optionCount && i < MAX_LINES; i++) {
+            int     rowY  = BODY_TOP + i * LINE_H;
+            uint8_t rowBg = (i % 2 == 1) ? COL_LTGRAY : COL_WHITE;
+
+            if (i % 2 == 1) {
+                gfx_SetColor(COL_LTGRAY);
+                gfx_FillRectangle_NoClip(0, rowY - 1, SCR_W, LINE_H + 1);
+            }
+            char numBuf[4];
+            snprintf(numBuf, sizeof(numBuf), "%d.", i + 1);
+            gfx_SetTextFGColor(COL_ORANGE);
+            gfx_SetTextBGColor(rowBg);
+            gfx_PrintStringXY(numBuf, LMARGIN, rowY);
+            gfx_SetTextFGColor(COL_BLACK);
+            gfx_SetTextBGColor(rowBg);
+            gfx_PrintStringXY(options[i], LMARGIN + 26, rowY);
+        }
+        blit();
+
+        uint8_t key = waitForKey();
+        if (key == sk_Clear) return -1;
+
+        int sel = -1;
+        switch (key) {
+            case sk_1: sel = 0; break;
+            case sk_2: sel = 1; break;
+            case sk_3: sel = 2; break;
+            case sk_4: sel = 3; break;
+            case sk_5: sel = 4; break;
+            case sk_6: sel = 5; break;
+            case sk_7: sel = 6; break;
+            case sk_8: sel = 7; break;
+            default:   break;
+        }
+        if (sel >= 0 && sel < optionCount) return sel;
+    }
+}
 
 /* ═══════════════════════════════════════════════
    SECTION 1 — EQUATIONS & INEQUALITIES
    ═══════════════════════════════════════════════ */
 
-/* 1a. Linear equation  Ax + B = C */
-static void eq_linear(void)
+static void solveLinearEquation(void)
 {
-    clr();
-    pln("LINEAR EQUATION");
-    pln("Ax + B = C");
-    divider();
-    double A = get_num("A= ");
-    double B = get_num("B= ");
-    double C = get_num("C= ");
+    startScreen("LINEAR EQUATION", "[CLEAR] Back");
+    printSubheader("Ax + B = C");
+    printBlank();
 
-    char bA[16], bB[16], bC[16], line[LINE_SZ];
-    fmt(bA, sizeof(bA), A);
-    fmt(bB, sizeof(bB), B);
-    fmt(bC, sizeof(bC), C);
+    double coeffA    = inputNumber("A = ");
+    double constantB = inputNumber("B = ");
+    double constantC = inputNumber("C = ");
+    printDivider();
 
-    clr();
-    pln("LINEAR EQUATION");
-    divider();
-    snprintf(line, sizeof(line), "(%s)x + (%s) = %s", bA, bB, bC);
-    /* If it fits in 26 chars, print; else print on two lines */
-    if ((int)strlen(line) <= 26) {
-        pln(line);
+    char numBuf[20], lineBuf[48];
+
+    if (fabs(coeffA) < MATH_EPS) {
+        bool isTrue = fabs(constantB - constantC) < MATH_EPS;
+        printLine(isTrue ? "All Real Numbers" : "No Solution",
+                  isTrue ? COL_GREEN : COL_RED);
     } else {
-        snprintf(line, sizeof(line), "A=%s B=%s C=%s", bA, bB, bC);
-        pln(line);
+        double solutionX = (constantC - constantB) / coeffA;
+        formatNumber(numBuf, sizeof(numBuf), solutionX);
+        snprintf(lineBuf, sizeof(lineBuf), "x = %s", numBuf);
+        printLine(lineBuf, COL_GREEN);
     }
-    divider();
-
-    if (fabs(A) < EPSILON) {
-        if (fabs(B - C) < EPSILON) pln("All Real Numbers");
-        else                        pln("No Solution");
-    } else {
-        double x = (C - B) / A;
-        fmt(bA, sizeof(bA), x);
-        snprintf(line, sizeof(line), "x = %s", bA);
-        pln(line);
-    }
-    any_key();
+    waitContinue();
 }
 
-/* 1b. Quadratic  Ax^2 + Bx + C = 0 */
-static void eq_quadratic(void)
+static void solveQuadraticEquation(void)
 {
-    clr();
-    pln("QUADRATIC EQUATION");
-    pln("Ax^2 + Bx + C = 0");
-    divider();
-    double A = get_num("A= ");
-    double B = get_num("B= ");
-    double C = get_num("C= ");
+    startScreen("QUADRATIC EQUATION", "[CLEAR] Back");
+    printSubheader("Ax^2 + Bx + C = 0");
+    printBlank();
 
-    char bA[16], bB[16], line[LINE_SZ];
+    double coeffA = inputNumber("A = ");
+    double coeffB = inputNumber("B = ");
+    double coeffC = inputNumber("C = ");
+    printDivider();
 
-    clr();
-    pln("QUADRATIC EQUATION");
-    divider();
+    char n1[20], n2[20], lineBuf[52];
 
-    if (fabs(A) < EPSILON) {
-        pln("A=0: not quadratic");
-        if (fabs(B) > EPSILON) {
-            double x = -C / B;
-            fmt(bA, sizeof(bA), x);
-            snprintf(line, sizeof(line), "Linear: x = %s", bA);
-            pln(line);
+    if (fabs(coeffA) < MATH_EPS) {
+        printLine("A=0: reduces to linear", COL_ORANGE);
+        if (fabs(coeffB) > MATH_EPS) {
+            formatNumber(n1, sizeof(n1), -coeffC / coeffB);
+            snprintf(lineBuf, sizeof(lineBuf), "x = %s", n1);
+            printLine(lineBuf, COL_GREEN);
         } else {
-            if (fabs(C) < EPSILON) pln("All Reals (0=0)");
-            else                    pln("No Solution");
+            bool trivTrue = fabs(coeffC) < MATH_EPS;
+            printLine(trivTrue ? "All Real Numbers" : "No Solution",
+                      trivTrue ? COL_GREEN : COL_RED);
         }
-        any_key();
+        waitContinue();
         return;
     }
 
-    double D = B * B - 4.0 * A * C;
-    fmt(bA, sizeof(bA), D);
-    snprintf(line, sizeof(line), "Discrim. D = %s", bA);
-    pln(line);
+    double disc   = coeffB * coeffB - 4.0 * coeffA * coeffC;
+    double vertX  = -coeffB / (2.0 * coeffA);
+    double vertY  = coeffA * vertX * vertX + coeffB * vertX + coeffC;
 
-    double vx = -B / (2.0 * A);
-    double vy = A * vx * vx + B * vx + C;
+    formatNumber(n1, sizeof(n1), disc);
+    snprintf(lineBuf, sizeof(lineBuf), "Discriminant = %s", n1);
+    printLine(lineBuf, COL_BLACK);
 
-    if (D > EPSILON) {
-        double sqD = sqrt(D);
-        double x1 = (-B - sqD) / (2.0 * A);
-        double x2 = (-B + sqD) / (2.0 * A);
-        pln("Two Real Roots:");
-        fmt(bA, sizeof(bA), x1);
-        snprintf(line, sizeof(line), "  x1 = %s", bA);
-        pln(line);
-        fmt(bA, sizeof(bA), x2);
-        snprintf(line, sizeof(line), "  x2 = %s", bA);
-        pln(line);
-    } else if (fabs(D) <= EPSILON) {
-        pln("One Real Root (equal):");
-        fmt(bA, sizeof(bA), vx);
-        snprintf(line, sizeof(line), "  x = %s", bA);
-        pln(line);
+    if (disc > MATH_EPS) {
+        double sqrtD = sqrt(disc);
+        double root1 = (-coeffB - sqrtD) / (2.0 * coeffA);
+        double root2 = (-coeffB + sqrtD) / (2.0 * coeffA);
+        printLine("Two Real Roots:", COL_ORANGE);
+        formatNumber(n1, sizeof(n1), root1);
+        snprintf(lineBuf, sizeof(lineBuf), "  x1 = %s", n1);
+        printLine(lineBuf, COL_GREEN);
+        formatNumber(n1, sizeof(n1), root2);
+        snprintf(lineBuf, sizeof(lineBuf), "  x2 = %s", n1);
+        printLine(lineBuf, COL_GREEN);
+    } else if (fabs(disc) <= MATH_EPS) {
+        printLine("Repeated Root:", COL_ORANGE);
+        formatNumber(n1, sizeof(n1), vertX);
+        snprintf(lineBuf, sizeof(lineBuf), "  x = %s", n1);
+        printLine(lineBuf, COL_GREEN);
     } else {
-        double im = sqrt(-D) / (2.0 * fabs(A));
-        pln("Complex Roots:");
-        fmt(bA, sizeof(bA), vx);
-        fmt(bB, sizeof(bB), im);
-        snprintf(line, sizeof(line), "  %s +/- %si", bA, bB);
-        pln(line);
+        double imagPart = sqrt(-disc) / (2.0 * fabs(coeffA));
+        printLine("Complex Roots:", COL_ORANGE);
+        formatNumber(n1, sizeof(n1), vertX);
+        formatNumber(n2, sizeof(n2), imagPart);
+        snprintf(lineBuf, sizeof(lineBuf), "  %s +/- %si", n1, n2);
+        printLine(lineBuf, COL_GREEN);
     }
 
-    fmt(bA, sizeof(bA), vx);
-    fmt(bB, sizeof(bB), vy);
-    snprintf(line, sizeof(line), "V:(%s,%s)", bA, bB);
-    pln(line);
-    any_key();
+    formatNumber(n1, sizeof(n1), vertX);
+    formatNumber(n2, sizeof(n2), vertY);
+    snprintf(lineBuf, sizeof(lineBuf), "Vertex: (%s, %s)", n1, n2);
+    printLine(lineBuf, COL_BLACK);
+    waitContinue();
 }
 
-/* 1c. Linear inequality  Ax + B {op} C */
-static void ineq_linear(void)
+/* Flip operator index when dividing by a negative number */
+static int flipOp(int op)
 {
-    clr();
-    pln("LINEAR INEQUALITY");
-    pln("Ax + B {op} C");
-    divider();
-    double A = get_num("A= ");
-    double B = get_num("B= ");
-    double C = get_num("C= ");
+    const int kFlipTable[4] = {2, 3, 0, 1};
+    return kFlipTable[op];
+}
 
-    int op = pick_ineq_op();
+static void solveLinearInequality(void)
+{
+    startScreen("LINEAR INEQUALITY", "[CLEAR] Back");
+    printSubheader("Ax + B  op  C");
+    printBlank();
+
+    double coeffA    = inputNumber("A = ");
+    double constantB = inputNumber("B = ");
+    double constantC = inputNumber("C = ");
+    int    op        = inputOperator("Operator:");
     if (op < 0) return;
 
-    char bA[16], bB[16], line[LINE_SZ];
-    clr();
-    pln("LINEAR INEQUALITY");
-    divider();
+    printDivider();
 
-    /* A = 0 case: constant inequality */
-    if (fabs(A) < EPSILON) {
-        bool res;
+    char numBuf[20], lineBuf[40];
+
+    if (fabs(coeffA) < MATH_EPS) {
+        bool satisfied;
         switch (op) {
-            case 0: res = (B <  C); break;
-            case 1: res = (B <= C); break;
-            case 2: res = (B >  C); break;
-            default:res = (B >= C); break;
+            case 0: satisfied = (constantB <  constantC); break;
+            case 1: satisfied = (constantB <= constantC); break;
+            case 2: satisfied = (constantB >  constantC); break;
+            default:satisfied = (constantB >= constantC); break;
         }
-        pln(res ? "All Real Numbers" : "No Solution");
-        any_key();
+        printLine(satisfied ? "All Real Numbers" : "No Solution",
+                  satisfied ? COL_GREEN : COL_RED);
+        waitContinue();
         return;
     }
 
-    double x = (C - B) / A;
-    fmt(bA, sizeof(bA), x);
+    double boundaryX = (constantC - constantB) / coeffA;
+    int    resultOp  = (coeffA < 0.0) ? flipOp(op) : op;
 
-    /* If A < 0, flip direction */
-    int eff = op;
-    if (A < 0.0) {
-        const int flip[4] = {2, 3, 0, 1};
-        eff = flip[op];
-    }
-
-    /* Inequality-style solution */
-    snprintf(line, sizeof(line), "x %s %s", op_str[eff], bA);
-    pln(line);
-
-    /* Interval notation */
-    if      (eff == 0) snprintf(line, sizeof(line), "(-inf, %s)",  bA);
-    else if (eff == 1) snprintf(line, sizeof(line), "(-inf, %s]",  bA);
-    else if (eff == 2) snprintf(line, sizeof(line), "(%s, inf)",   bA);
-    else               snprintf(line, sizeof(line), "[%s, inf)",   bA);
-    pln(line);
-
-    /* Show the boundary value in fraction form if near a nice fraction */
-    fmt(bB, sizeof(bB), C - B);
-    fmt(bA, sizeof(bA), A);
-    snprintf(line, sizeof(line), "x = (%s)/(%s)", bB, bA);
-    pln(line);
-
-    any_key();
+    formatNumber(numBuf, sizeof(numBuf), boundaryX);
+    snprintf(lineBuf, sizeof(lineBuf), "x %s %s", kOpStr[resultOp], numBuf);
+    printLine(lineBuf, COL_GREEN);
+    waitContinue();
 }
 
-/* ═══════════════════════════════════════════════
-   SECTION 2 — ABSOLUTE VALUE
-   ═══════════════════════════════════════════════ */
-
-/* Helper: solve |Ax+B| = rhs, print solutions labelled x{n}, x{n+1}.
-   Returns the next available label index. */
-static int solve_abs_eq(double A, double B, double rhs,
-                         int xi, bool showLabel)
+static void solveThreeWayInequality(void)
 {
-    char buf[16], line[LINE_SZ];
-    if (rhs < -EPSILON) return xi;   /* negative RHS — no solution */
+    startScreen("THREE-WAY INEQUALITY", "[CLEAR] Back");
+    printSubheader("C1 op1  Ax+B  op2 C2");
+    printBlank();
 
-    if (fabs(A) < EPSILON) {
-        /* |B| = rhs */
-        if (fabs(fabs(B) - rhs) < EPSILON) {
-            pln(showLabel ? "True for all x" : "All Reals");
+    double leftBound  = inputNumber("C1 = ");
+    int    leftOp     = inputOperator("op1 (C1 op1 Ax+B):");
+    if (leftOp < 0) return;
+    double coeffA     = inputNumber("A = ");
+    double constantB  = inputNumber("B = ");
+    int    rightOp    = inputOperator("op2 (Ax+B op2 C2):");
+    if (rightOp < 0) return;
+    double rightBound = inputNumber("C2 = ");
+
+    printDivider();
+
+    char lo[20], hi[20], lineBuf[52];
+
+    /* A = 0: constant check only */
+    if (fabs(coeffA) < MATH_EPS) {
+        bool leftOk, rightOk;
+        switch (leftOp)  {
+            case 0: leftOk  = (leftBound <  constantB); break;
+            case 1: leftOk  = (leftBound <= constantB); break;
+            case 2: leftOk  = (leftBound >  constantB); break;
+            default:leftOk  = (leftBound >= constantB); break;
         }
-        /* else: no solution (no output) */
-        return xi;
-    }
-
-    if (fabs(rhs) <= EPSILON) {
-        /* |Ax+B| = 0  =>  x = -B/A */
-        double x = -B / A;
-        fmt(buf, sizeof(buf), x);
-        snprintf(line, sizeof(line), "x%d = %s", xi, buf);
-        pln(line);
-        return xi + 1;
-    }
-
-    /* Two solutions: Ax+B = rhs  and  Ax+B = -rhs */
-    double x1 = ( rhs - B) / A;
-    double x2 = (-rhs - B) / A;
-    fmt(buf, sizeof(buf), x1);
-    snprintf(line, sizeof(line), "x%d = %s", xi, buf);
-    pln(line);
-    fmt(buf, sizeof(buf), x2);
-    snprintf(line, sizeof(line), "x%d = %s", xi + 1, buf);
-    pln(line);
-    return xi + 2;
-}
-
-/* 2a.  |Ax + B| = C */
-static void absval_eq(void)
-{
-    clr();
-    pln("ABS VALUE EQUATION");
-    pln("|Ax + B| = C");
-    divider();
-    double A = get_num("A= ");
-    double B = get_num("B= ");
-    double C = get_num("C= ");
-
-    clr();
-    pln("ABS VALUE EQUATION");
-    divider();
-
-    if (C < -EPSILON) {
-        pln("No Solution");
-        pln("(|expr| >= 0 always)");
-    } else {
-        int nextIdx = solve_abs_eq(A, B, C, 1, true);
-        if (nextIdx == 1) pln("No Solution");
-    }
-    any_key();
-}
-
-/* 2b.  |Ax + B| {op} C */
-static void absval_ineq(void)
-{
-    clr();
-    pln("ABS VALUE INEQUALITY");
-    pln("|Ax+B| {op} C");
-    divider();
-    double A = get_num("A= ");
-    double B = get_num("B= ");
-    double C = get_num("C= ");
-
-    int op = pick_ineq_op();
-    if (op < 0) return;
-
-    bool less   = (op == 0 || op == 1);
-    bool strict = (op == 0 || op == 2);
-    char bL[16], bH[16], line[LINE_SZ];
-
-    clr();
-    pln("ABS VALUE INEQUALITY");
-    divider();
-
-    if (less) {
-        /* |Ax+B| < C  (or <=)
-           =>  -C < Ax+B < C
-           =>  (-C-B)/A and (C-B)/A, sorted */
-        if (C < EPSILON && strict) {
-            pln("No Solution");
-            pln("(|.| >= 0 > C)");
-        } else if (fabs(A) < EPSILON) {
-            /* |B| op C */
-            bool ok = strict ? (fabs(B) < C) : (fabs(B) <= C);
-            pln(ok ? "All Real Numbers" : "No Solution");
-        } else {
-            double v1 = (-C - B) / A;
-            double v2 = ( C - B) / A;
-            double lo = fmin(v1, v2);
-            double hi = fmax(v1, v2);
-            fmt(bL, sizeof(bL), lo);
-            fmt(bH, sizeof(bH), hi);
-            char lb = strict ? '(' : '[';
-            char rb = strict ? ')' : ']';
-            snprintf(line, sizeof(line), "%c%s, %s%c", lb, bL, bH, rb);
-            pln(line);
-            snprintf(line, sizeof(line),
-                     strict ? "%s < x < %s" : "%s <= x <= %s", bL, bH);
-            pln(line);
+        switch (rightOp) {
+            case 0: rightOk = (constantB <  rightBound); break;
+            case 1: rightOk = (constantB <= rightBound); break;
+            case 2: rightOk = (constantB >  rightBound); break;
+            default:rightOk = (constantB >= rightBound); break;
         }
+        printLine((leftOk && rightOk) ? "All Real Numbers" : "No Solution",
+                  (leftOk && rightOk) ? COL_GREEN : COL_RED);
+        waitContinue();
+        return;
+    }
+
+    /*
+     * Left side  "C1 leftOp Ax+B"
+     *   -> reverse operator -> "Ax+B revLeft C1"
+     *   -> isolate x        -> "x revLeft (C1-B)/A"
+     *   -> if A<0, flip again
+     *
+     * Right side "Ax+B rightOp C2"
+     *   -> isolate x        -> "x rightOp (C2-B)/A"
+     *   -> if A<0, flip
+     */
+    int    xOpLeft   = flipOp(leftOp);
+    if (coeffA < 0.0) xOpLeft = flipOp(xOpLeft);
+    double xBoundLeft  = (leftBound  - constantB) / coeffA;
+
+    int    xOpRight  = rightOp;
+    if (coeffA < 0.0) xOpRight = flipOp(xOpRight);
+    double xBoundRight = (rightBound - constantB) / coeffA;
+
+    bool leftIsLower  = (xOpLeft  == 2 || xOpLeft  == 3);
+    bool rightIsLower = (xOpRight == 2 || xOpRight == 3);
+
+    double finalLo, finalHi;
+    bool   loStrict, hiStrict;
+
+    if (leftIsLower && !rightIsLower) {
+        finalLo  = xBoundLeft;  loStrict = (xOpLeft  == 2);
+        finalHi  = xBoundRight; hiStrict = (xOpRight == 0);
+    } else if (!leftIsLower && rightIsLower) {
+        finalLo  = xBoundRight; loStrict = (xOpRight == 2);
+        finalHi  = xBoundLeft;  hiStrict = (xOpLeft  == 0);
     } else {
-        /* |Ax+B| > C  (or >=) */
-        if (C < -EPSILON) {
-            pln("All Real Numbers");
-        } else if (fabs(A) < EPSILON) {
-            bool ok = strict ? (fabs(B) > C) : (fabs(B) >= C);
-            pln(ok ? "All Real Numbers" : "No Solution");
-        } else {
-            double v1 = (-C - B) / A;
-            double v2 = ( C - B) / A;
-            double lo = fmin(v1, v2);
-            double hi = fmax(v1, v2);
-            fmt(bL, sizeof(bL), lo);
-            fmt(bH, sizeof(bH), hi);
-            char ob = strict ? ')' : ']';
-            char ib = strict ? '(' : '[';
-            snprintf(line, sizeof(line), "(-inf,%s%s", &ob, bL);
-            /* Note: just embed bracket char */
-            snprintf(line, sizeof(line), "(-inf,%c%s", ob, bL);
-            pln(line);
-            pln("  OR");
-            snprintf(line, sizeof(line), "%s%c,inf)", bH, ib);
-            pln(line);
-            snprintf(line, sizeof(line),
-                     strict ? "x<%s or x>%s" : "x<=%s or x>=%s", bL, bH);
-            pln(line);
-        }
-    }
-    any_key();
-}
-
-/* 2c.  |Ax + B| = |Cx + D| */
-static void absval_eq_eq(void)
-{
-    clr();
-    pln("|Ax+B| = |Cx+D|");
-    divider();
-    double A = get_num("A= ");
-    double B = get_num("B= ");
-    double C = get_num("C= ");
-    double D = get_num("D= ");
-
-    clr();
-    pln("|Ax+B| = |Cx+D|");
-    divider();
-
-    char buf[16], line[LINE_SZ];
-    bool found = false;
-
-    /* Case 1: Ax+B = Cx+D  =>  (A-C)x = D-B */
-    double a1 = A - C, b1 = D - B;
-    if (fabs(a1) < EPSILON) {
-        if (fabs(b1) < EPSILON) { pln("Case1: All Reals"); found = true; }
-    } else {
-        double x = b1 / a1;
-        fmt(buf, sizeof(buf), x);
-        snprintf(line, sizeof(line), "x1 = %s", buf);
-        pln(line);
-        found = true;
-    }
-
-    /* Case 2: Ax+B = -(Cx+D)  =>  (A+C)x = -D-B */
-    double a2 = A + C, b2 = -D - B;
-    if (fabs(a2) < EPSILON) {
-        if (fabs(b2) < EPSILON) { pln("Case2: All Reals"); found = true; }
-    } else {
-        double x = b2 / a2;
-        fmt(buf, sizeof(buf), x);
-        snprintf(line, sizeof(line), "x2 = %s", buf);
-        pln(line);
-        found = true;
-    }
-
-    if (!found) pln("No Solution");
-    any_key();
-}
-
-/* 2d.  Nested: ||Ax+B| - C| = D
-   Reduces to |Ax+B| = C+D  and  |Ax+B| = C-D  */
-static void absval_nested(void)
-{
-    clr();
-    pln("NESTED ABS VALUE");
-    pln("||Ax+B| - C| = D");
-    divider();
-    double A = get_num("A= ");
-    double B = get_num("B= ");
-    double C = get_num("C= ");
-    double D = get_num("D= ");
-
-    clr();
-    pln("NESTED ABS VALUE");
-    pln("||Ax+B| - C| = D");
-    divider();
-
-    if (D < -EPSILON) { pln("No Solution (D<0)"); any_key(); return; }
-
-    /* ||Ax+B|-C|=D  =>  |Ax+B|-C = ±D
-       =>  |Ax+B| = C+D  or  |Ax+B| = C-D */
-    double rhs[2] = { C + D, C - D };
-    int xi = 1;
-    bool found = false;
-
-    for (int k = 0; k < 2; k++) {
-        if (rhs[k] < -EPSILON) continue;
-        int next = solve_abs_eq(A, B, rhs[k], xi, false);
-        if (next > xi) { found = true; xi = next; }
-    }
-
-    if (!found) pln("No Solution");
-    any_key();
-}
-
-/* 2e.  Combined: |Ax+B| + C {op} D
-   Reduces to |Ax+B| {op} (D-C)  */
-static void absval_ineq_combined(void)
-{
-    clr();
-    pln("ABS VAL + CONST INEQ");
-    pln("|Ax+B| + C {op} D");
-    divider();
-    double A = get_num("A= ");
-    double B = get_num("B= ");
-    double C = get_num("C= ");
-    double D = get_num("D= ");
-
-    int op = pick_ineq_op();
-    if (op < 0) return;
-
-    /* Rewrite as |Ax+B| op (D-C) — borrow absval_ineq logic inline */
-    double newC = D - C;
-    bool less   = (op == 0 || op == 1);
-    bool strict = (op == 0 || op == 2);
-    char bL[16], bH[16], line[LINE_SZ];
-
-    clr();
-    pln("ABS VAL + CONST INEQ");
-    divider();
-
-    char bR[16];
-    fmt(bR, sizeof(bR), newC);
-    snprintf(line, sizeof(line), "|Ax+B| %s %s", op_str[op], bR);
-    pln(line);
-    divider();
-
-    if (less) {
-        if (newC < EPSILON && strict) { pln("No Solution"); }
-        else if (fabs(A) < EPSILON) {
-            bool ok = strict ? (fabs(B) < newC) : (fabs(B) <= newC);
-            pln(ok ? "All Real Numbers" : "No Solution");
-        } else {
-            double v1 = (-newC - B) / A, v2 = (newC - B) / A;
-            double lo = fmin(v1,v2), hi = fmax(v1,v2);
-            fmt(bL,sizeof(bL),lo); fmt(bH,sizeof(bH),hi);
-            char lb = strict?'(':'[', rb = strict?')':']';
-            snprintf(line,sizeof(line),"%c%s, %s%c",lb,bL,bH,rb); pln(line);
-            snprintf(line,sizeof(line),
-                     strict?"%s<x<%s":"%s<=x<=%s",bL,bH); pln(line);
-        }
-    } else {
-        if (newC < -EPSILON) { pln("All Real Numbers"); }
-        else if (fabs(A) < EPSILON) {
-            bool ok = strict?(fabs(B)>newC):(fabs(B)>=newC);
-            pln(ok?"All Real Numbers":"No Solution");
-        } else {
-            double v1 = (-newC - B)/A, v2 = (newC - B)/A;
-            double lo = fmin(v1,v2), hi = fmax(v1,v2);
-            fmt(bL,sizeof(bL),lo); fmt(bH,sizeof(bH),hi);
-            char ob = strict?')':']', ib = strict?'(':'[';
-            snprintf(line,sizeof(line),"(-inf,%c%s",ob,bL); pln(line);
-            pln("  OR");
-            snprintf(line,sizeof(line),"%s%c,inf)",bH,ib); pln(line);
-            snprintf(line,sizeof(line),
-                     strict?"x<%s or x>%s":"x<=%s or x>=%s",bL,bH); pln(line);
-        }
-    }
-    any_key();
-}
-
-/* ═══════════════════════════════════════════════
-   SECTION 3 — SYSTEMS OF EQUATIONS
-   ═══════════════════════════════════════════════ */
-
-/* 3a.  2×2 via Cramer's Rule
-   a1x + b1y = c1
-   a2x + b2y = c2                               */
-static void sys_2x2(void)
-{
-    clr();
-    pln("2x2 SYSTEM");
-    pln("a1x+b1y=c1");
-    pln("a2x+b2y=c2");
-    divider();
-
-    pln("--- Equation 1 ---");
-    double a1 = get_num("a1= ");
-    double b1 = get_num("b1= ");
-    double c1 = get_num("c1= ");
-    pln("--- Equation 2 ---");
-    double a2 = get_num("a2= ");
-    double b2 = get_num("b2= ");
-    double c2 = get_num("c2= ");
-
-    clr();
-    pln("2x2 SYSTEM SOLUTION");
-    divider();
-
-    double det = a1 * b2 - a2 * b1;
-    char bX[16], bY[16], line[LINE_SZ];
-
-    if (fabs(det) < EPSILON) {
-        /* Check infinite vs no solution via row proportionality */
-        bool inf = false;
-        if (fabs(a2) > EPSILON) {
-            double r = a1 / a2;
-            inf = (fabs(b1 - r*b2) < EPSILON && fabs(c1 - r*c2) < EPSILON);
-        } else if (fabs(a1) < EPSILON) {
-            if (fabs(b2) > EPSILON) {
-                double r = b1 / b2;
-                inf = (fabs(c1 - r*c2) < EPSILON);
+        /* Both conditions point the same direction -> single half-line */
+        double chosenBound;
+        int    chosenOp;
+        if (leftIsLower) {
+            if (fabs(xBoundLeft - xBoundRight) < MATH_EPS) {
+                chosenBound = xBoundLeft;
+                chosenOp = (xOpLeft == 2 || xOpRight == 2) ? 2 : 3;
+            } else if (xBoundLeft > xBoundRight) {
+                chosenBound = xBoundLeft;  chosenOp = xOpLeft;
             } else {
-                inf = (fabs(c1) < EPSILON && fabs(c2) < EPSILON);
+                chosenBound = xBoundRight; chosenOp = xOpRight;
             }
-        }
-        pln(inf ? "Infinite Solutions" : "No Solution");
-    } else {
-        double x = (c1 * b2 - c2 * b1) / det;
-        double y = (a1 * c2 - a2 * c1) / det;
-        fmt(bX, sizeof(bX), x);
-        fmt(bY, sizeof(bY), y);
-        snprintf(line, sizeof(line), "x = %s", bX);  pln(line);
-        snprintf(line, sizeof(line), "y = %s", bY);  pln(line);
-        snprintf(line, sizeof(line), "(%s, %s)", bX, bY); pln(line);
-    }
-    any_key();
-}
-
-/* 3b.  3×3 via Gaussian Elimination with partial pivoting
-   ax + by + cz = d   (for 3 equations)           */
-static void sys_3x3(void)
-{
-    double m[3][4];   /* augmented matrix */
-    int i, j, k;
-    const char *vname[3] = {"x","y","z"};
-    const char *coef[4]  = {"a= ","b= ","c= ","d= "};
-
-    clr();
-    pln("3x3 SYSTEM");
-    pln("ax+by+cz=d");
-    divider();
-
-    for (i = 0; i < 3; i++) {
-        char hdr[16];
-        snprintf(hdr, sizeof(hdr), "-- Equation %d --", i+1);
-        pln(hdr);
-        for (j = 0; j < 4; j++) {
-            m[i][j] = get_num(coef[j]);
-        }
-    }
-
-    /* Partial-pivot Gaussian elimination */
-    for (i = 0; i < 3; i++) {
-        /* Find best pivot in column i */
-        int pivot = i;
-        for (k = i+1; k < 3; k++) {
-            if (fabs(m[k][i]) > fabs(m[pivot][i])) pivot = k;
-        }
-        if (pivot != i) {
-            for (j = 0; j <= 3; j++) {
-                double tmp = m[i][j]; m[i][j] = m[pivot][j]; m[pivot][j] = tmp;
-            }
-        }
-        if (fabs(m[i][i]) < EPSILON) continue;
-        for (k = i+1; k < 3; k++) {
-            double f = m[k][i] / m[i][i];
-            for (j = i; j <= 3; j++) m[k][j] -= f * m[i][j];
-        }
-    }
-
-    /* Back substitution */
-    double sol[3] = {0.0, 0.0, 0.0};
-    bool valid = true;
-    for (i = 2; i >= 0; i--) {
-        if (fabs(m[i][i]) < EPSILON) { valid = false; break; }
-        sol[i] = m[i][3];
-        for (j = i+1; j < 3; j++) sol[i] -= m[i][j] * sol[j];
-        sol[i] /= m[i][i];
-    }
-
-    clr();
-    pln("3x3 SYSTEM SOLUTION");
-    divider();
-
-    if (!valid) {
-        /* Infinite if last row is all zeros, else no solution */
-        bool allZ = true;
-        for (j = 0; j < 3; j++) if (fabs(m[2][j]) > EPSILON) { allZ=false; break; }
-        pln((allZ && fabs(m[2][3]) < EPSILON) ? "Infinite Solutions" : "No Solution");
-    } else {
-        char buf[16], line[LINE_SZ];
-        for (i = 0; i < 3; i++) {
-            fmt(buf, sizeof(buf), sol[i]);
-            snprintf(line, sizeof(line), "%s = %s", vname[i], buf);
-            pln(line);
-        }
-        /* Abbreviated tuple display */
-        char bx[8],by[8],bz[8];
-        snprintf(bx,sizeof(bx),"%.4g",sol[0]);
-        snprintf(by,sizeof(by),"%.4g",sol[1]);
-        snprintf(bz,sizeof(bz),"%.4g",sol[2]);
-        snprintf(line, sizeof(line), "(%s,%s,%s)", bx,by,bz);
-        pln(line);
-    }
-    any_key();
-}
-
-/* ═══════════════════════════════════════════════
-   SECTION 4 — COORDINATE GEOMETRY
-   ═══════════════════════════════════════════════ */
-
-/* 4a.  Distance & Midpoint */
-static void coord_dist_mid(void)
-{
-    clr();
-    pln("DISTANCE & MIDPOINT");
-    pln("Points (x1,y1),(x2,y2)");
-    divider();
-    double x1 = get_num("x1= ");
-    double y1 = get_num("y1= ");
-    double x2 = get_num("x2= ");
-    double y2 = get_num("y2= ");
-
-    double dx   = x2 - x1, dy = y2 - y1;
-    double dsq  = dx*dx + dy*dy;
-    double dist = sqrt(dsq);
-    double mx   = (x1 + x2) * 0.5;
-    double my   = (y1 + y2) * 0.5;
-
-    char b1[16], b2[16], line[LINE_SZ];
-    clr();
-    pln("DISTANCE & MIDPOINT");
-    divider();
-
-    fmt(b1, sizeof(b1), dist);
-    snprintf(line, sizeof(line), "d = %s", b1);     pln(line);
-    fmt(b1, sizeof(b1), dsq);
-    snprintf(line, sizeof(line), "  = sqrt(%s)", b1); pln(line);
-
-    fmt(b1, sizeof(b1), mx);
-    fmt(b2, sizeof(b2), my);
-    snprintf(line, sizeof(line), "Mid = (%s, %s)", b1, b2); pln(line);
-    any_key();
-}
-
-/* 4b.  Slope & Line Equations */
-static void coord_slope_line(void)
-{
-    clr();
-    pln("SLOPE & LINE EQ.");
-    pln("Points (x1,y1),(x2,y2)");
-    divider();
-    double x1 = get_num("x1= ");
-    double y1 = get_num("y1= ");
-    double x2 = get_num("x2= ");
-    double y2 = get_num("y2= ");
-
-    char bM[16], bB[16], bX[16], bY[16], line[LINE_SZ];
-    clr();
-    pln("SLOPE & LINE EQ.");
-    divider();
-
-    if (fabs(x2 - x1) < EPSILON) {
-        pln("Slope: Undefined");
-        pln("(Vertical line)");
-        fmt(bX, sizeof(bX), x1);
-        snprintf(line, sizeof(line), "Eq: x = %s", bX); pln(line);
-    } else {
-        double m = (y2 - y1) / (x2 - x1);
-        double b = y1 - m * x1;
-        double xi = (fabs(m) > EPSILON) ? (-b / m) : 0.0; /* x-intercept */
-
-        fmt(bM, sizeof(bM), m);
-        fmt(bB, sizeof(bB), b);
-
-        snprintf(line, sizeof(line), "m = %s", bM); pln(line);
-
-        /* Slope-intercept: y = mx + b */
-        snprintf(line, sizeof(line), "y = %sx + %s", bM, bB); pln(line);
-
-        /* Point-slope (abbreviated for screen width) */
-        fmt(bX, sizeof(bX), x1);
-        fmt(bY, sizeof(bY), y1);
-        snprintf(line, sizeof(line), "Pt-slope: m=%s", bM); pln(line);
-        snprintf(line, sizeof(line), " pt=(%s,%s)", bX, bY); pln(line);
-
-        /* y-intercept */
-        snprintf(line, sizeof(line), "y-int: (0, %s)", bB); pln(line);
-
-        /* x-intercept (only if not horizontal) */
-        if (fabs(m) > EPSILON) {
-            fmt(bX, sizeof(bX), xi);
-            snprintf(line, sizeof(line), "x-int: (%s, 0)", bX); pln(line);
-        }
-    }
-    any_key();
-}
-
-/* 4c.  Parallel & Perpendicular Lines */
-static void coord_parallel_perp(void)
-{
-    clr();
-    pln("PARALLEL & PERP.");
-    pln("Enter slope m of line:");
-    divider();
-    double m = get_num("m= ");
-
-    char bM[16], bMP[16], bB[16], line[LINE_SZ];
-    fmt(bM, sizeof(bM), m);
-
-    clr();
-    pln("PARALLEL & PERP.");
-    divider();
-    snprintf(line, sizeof(line), "Given: m = %s", bM);    pln(line);
-    snprintf(line, sizeof(line), "Parallel: m = %s", bM); pln(line);
-
-    if (fabs(m) < EPSILON) {
-        pln("Perp: Undefined (vert.)");
-    } else {
-        double mp = -1.0 / m;
-        fmt(bMP, sizeof(bMP), mp);
-        snprintf(line, sizeof(line), "Perp: m = %s", bMP); pln(line);
-    }
-
-    /* Optional: line through a point */
-    pln("Through point (p,q)?");
-    pln("1: Yes   Other: No");
-    uint8_t key;
-    do { key = os_GetCSC(); } while (!key);
-
-    if (key == sk_1) {
-        double px = get_num("px= ");
-        double py = get_num("py= ");
-
-        /* Parallel: y = m*x + (py - m*px) */
-        double bPar = py - m * px;
-        fmt(bB, sizeof(bB), bPar);
-        snprintf(line, sizeof(line), "Par: y=%sx+%s", bM, bB); pln(line);
-
-        /* Perpendicular */
-        if (fabs(m) > EPSILON) {
-            double mp  = -1.0 / m;
-            double bPp = py - mp * px;
-            fmt(bMP, sizeof(bMP), mp);
-            fmt(bB,  sizeof(bB),  bPp);
-            snprintf(line, sizeof(line), "Perp: y=%sx+%s", bMP, bB); pln(line);
         } else {
-            /* Horizontal line through (px, py) → perpendicular is vertical */
-            fmt(bB, sizeof(bB), px);
-            snprintf(line, sizeof(line), "Perp: x = %s", bB); pln(line);
+            if (fabs(xBoundLeft - xBoundRight) < MATH_EPS) {
+                chosenBound = xBoundLeft;
+                chosenOp = (xOpLeft == 0 || xOpRight == 0) ? 0 : 1;
+            } else if (xBoundLeft < xBoundRight) {
+                chosenBound = xBoundLeft;  chosenOp = xOpLeft;
+            } else {
+                chosenBound = xBoundRight; chosenOp = xOpRight;
+            }
         }
+        formatNumber(lo, sizeof(lo), chosenBound);
+        snprintf(lineBuf, sizeof(lineBuf), "x %s %s", kOpStr[chosenOp], lo);
+        printLine(lineBuf, COL_GREEN);
+        waitContinue();
+        return;
     }
-    any_key();
+
+    if (finalLo > finalHi + MATH_EPS) {
+        printLine("No Solution", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    if (fabs(finalLo - finalHi) < MATH_EPS) {
+        if (loStrict || hiStrict) {
+            printLine("No Solution", COL_RED);
+        } else {
+            formatNumber(lo, sizeof(lo), finalLo);
+            snprintf(lineBuf, sizeof(lineBuf), "x = %s", lo);
+            printLine(lineBuf, COL_GREEN);
+        }
+        waitContinue();
+        return;
+    }
+
+    formatNumber(lo, sizeof(lo), finalLo);
+    formatNumber(hi, sizeof(hi), finalHi);
+    const char *loOpStr = loStrict ? ">"  : ">=";
+    const char *hiOpStr = hiStrict ? "<"  : "<=";
+    char        loBrk   = loStrict ? '('  : '[';
+    char        hiBrk   = hiStrict ? ')'  : ']';
+
+    snprintf(lineBuf, sizeof(lineBuf), "%s %s x %s %s",
+             lo, loOpStr, hiOpStr, hi);
+    printLine(lineBuf, COL_GREEN);
+    snprintf(lineBuf, sizeof(lineBuf), "%c%s, %s%c", loBrk, lo, hi, hiBrk);
+    printLine(lineBuf, COL_BLACK);
+    waitContinue();
 }
 
-/* 4d.  Collinearity / Angle between lines */
-static void coord_angle_lines(void)
+/* ═══════════════════════════════════════════════
+   SECTION 2 — ABSOLUTE VALUE HELPERS
+   ═══════════════════════════════════════════════ */
+
+/* Print solution lines for  |Ax+B| = rhs */
+static void printAbsEqSolution(double A, double B, double rhs)
 {
-    clr();
-    pln("ANGLE BETWEEN LINES");
-    pln("Enter slopes m1, m2:");
-    divider();
-    double m1 = get_num("m1= ");
-    double m2 = get_num("m2= ");
+    char v1[20], v2[20], lineBuf[52];
 
-    char b1[16], line[LINE_SZ];
-    clr();
-    pln("ANGLE BETWEEN LINES");
-    divider();
+    if (rhs < -MATH_EPS) {
+        printLine("No Solution  (rhs < 0)", COL_RED);
+        return;
+    }
+    if (fabs(A) < MATH_EPS) {
+        bool ok = fabs(fabs(B) - rhs) < MATH_EPS;
+        printLine(ok ? "All Real Numbers" : "No Solution",
+                  ok ? COL_GREEN : COL_RED);
+        return;
+    }
+    if (fabs(rhs) < MATH_EPS) {
+        formatNumber(v1, sizeof(v1), -B / A);
+        snprintf(lineBuf, sizeof(lineBuf), "x = %s", v1);
+        printLine(lineBuf, COL_GREEN);
+        return;
+    }
+    double root1 = ( rhs - B) / A;
+    double root2 = (-rhs - B) / A;
+    formatNumber(v1, sizeof(v1), root1);
+    formatNumber(v2, sizeof(v2), root2);
+    snprintf(lineBuf, sizeof(lineBuf), "x=%s  or  x=%s", v1, v2);
+    printLine(lineBuf, COL_GREEN);
+}
 
-    if (fabs(1.0 + m1 * m2) < EPSILON) {
-        pln("Lines are PERP (90 deg)");
-    } else if (fabs(m1 - m2) < EPSILON) {
-        pln("Lines are PARALLEL (0 deg)");
+/*
+ * Print solution lines for  |Ax+B| op rhs
+ * opType:  0=<   1=<=   2=>   3=>=
+ */
+static void printAbsIneqSolution(double A, double B, double rhs, int opType)
+{
+    char v1[20], v2[20], lineBuf[52];
+    bool isLess   = (opType == 0 || opType == 1);
+    bool isStrict = (opType == 0 || opType == 2);
+
+    if (isLess) {
+        if (rhs < MATH_EPS && isStrict) {
+            printLine("No Solution", COL_RED);
+            return;
+        }
+        if (fabs(rhs) < MATH_EPS && !isStrict) {
+            if (fabs(A) < MATH_EPS) {
+                printLine(fabs(B) < MATH_EPS ? "All Reals" : "No Solution",
+                          fabs(B) < MATH_EPS ? COL_GREEN : COL_RED);
+            } else {
+                formatNumber(v1, sizeof(v1), -B / A);
+                snprintf(lineBuf, sizeof(lineBuf), "x = %s", v1);
+                printLine(lineBuf, COL_GREEN);
+            }
+            return;
+        }
+        if (fabs(A) < MATH_EPS) {
+            bool ok = isStrict ? (fabs(B) < rhs) : (fabs(B) <= rhs);
+            printLine(ok ? "All Real Numbers" : "No Solution",
+                      ok ? COL_GREEN : COL_RED);
+            return;
+        }
+        double boundLo = (-rhs - B) / A;
+        double boundHi = ( rhs - B) / A;
+        if (boundLo > boundHi) {
+            double t = boundLo; boundLo = boundHi; boundHi = t;
+        }
+        formatNumber(v1, sizeof(v1), boundLo);
+        formatNumber(v2, sizeof(v2), boundHi);
+        const char *opStr = isStrict ? "<" : "<=";
+        snprintf(lineBuf, sizeof(lineBuf), "%s %s x %s %s",
+                 v1, opStr, opStr, v2);
+        printLine(lineBuf, COL_GREEN);
+
     } else {
-        double tanA = fabs((m1 - m2) / (1.0 + m1 * m2));
-        double angleRad = atan(tanA);
-        double angleDeg = angleRad * (180.0 / M_PI);
-        fmt(b1, sizeof(b1), angleDeg);
-        snprintf(line, sizeof(line), "Angle = %s deg", b1); pln(line);
-
-        fmt(b1, sizeof(b1), 180.0 - angleDeg);
-        snprintf(line, sizeof(line), "Supp.  = %s deg", b1); pln(line);
+        if (rhs < -MATH_EPS) {
+            printLine("All Real Numbers", COL_GREEN);
+            return;
+        }
+        if (!isStrict && fabs(rhs) < MATH_EPS) {
+            printLine("All Real Numbers", COL_GREEN);
+            return;
+        }
+        if (fabs(A) < MATH_EPS) {
+            bool ok = isStrict ? (fabs(B) > rhs) : (fabs(B) >= rhs);
+            printLine(ok ? "All Real Numbers" : "No Solution",
+                      ok ? COL_GREEN : COL_RED);
+            return;
+        }
+        double boundLo = (-rhs - B) / A;
+        double boundHi = ( rhs - B) / A;
+        if (boundLo > boundHi) {
+            double t = boundLo; boundLo = boundHi; boundHi = t;
+        }
+        formatNumber(v1, sizeof(v1), boundLo);
+        formatNumber(v2, sizeof(v2), boundHi);
+        const char *lopStr = isStrict ? "<"  : "<=";
+        const char *ropStr = isStrict ? ">"  : ">=";
+        snprintf(lineBuf, sizeof(lineBuf), "x %s %s  or  x %s %s",
+                 lopStr, v1, ropStr, v2);
+        printLine(lineBuf, COL_GREEN);
     }
-    any_key();
 }
 
 /* ═══════════════════════════════════════════════
-   SECTION 5 — FORMULA REFERENCE  (display only)
+   SECTION 2 — ABSOLUTE VALUE SOLVERS
    ═══════════════════════════════════════════════ */
 
-static void ref_algebra(void)
+static void solveAbsEq(void)
 {
-    clr();
-    pln("ALGEBRA FORMULAS");
-    divider();
-    pln("LINE: y = mx + b");
-    pln("y - y1 = m(x - x1)");
-    pln("Ax + By + C = 0");
-    pln("QUAD: ax^2+bx+c=0");
-    pln("x=(-b+/-sqt(D))/2a");
-    pln("D = b^2 - 4ac");
-    any_key();
-
-    clr();
-    pln("ALGEBRA FORMULAS 2");
-    divider();
-    pln("D>0: 2 real roots");
-    pln("D=0: 1 real root");
-    pln("D<0: complex roots");
-    pln("Vertex: x = -b/2a");
-    pln("  y = f(-b/2a)");
-    pln("SPECIAL PRODUCTS:");
-    any_key();
-
-    clr();
-    pln("SPECIAL FACTORS");
-    divider();
-    pln("a^2-b^2=(a+b)(a-b)");
-    pln("a^3-b^3=");
-    pln(" (a-b)(a^2+ab+b^2)");
-    pln("a^3+b^3=");
-    pln(" (a+b)(a^2-ab+b^2)");
-    pln("(a+b)^2=a^2+2ab+b^2");
-    any_key();
+    startScreen("|Ax + B| = C", "[CLEAR] Back");
+    printSubheader("Enter A, B, C:");
+    printBlank();
+    double A = inputNumber("A = ");
+    double B = inputNumber("B = ");
+    double C = inputNumber("C = ");
+    printDivider();
+    printAbsEqSolution(A, B, C);
+    waitContinue();
 }
 
-static void ref_geometry(void)
+static void solveAbsIneq(void)
 {
-    clr();
-    pln("GEOMETRY FORMULAS");
-    divider();
-    pln("CIRCLE:A=pi*r^2");
-    pln("       C=2*pi*r");
-    pln("SPHERE:V=(4/3)pi*r^3");
-    pln("       SA=4*pi*r^2");
-    pln("CYLINDER:V=pi*r^2*h");
-    pln("CONE:V=(1/3)pi*r^2*h");
-    any_key();
-
-    clr();
-    pln("GEOMETRY FORMULAS 2");
-    divider();
-    pln("RECT: A=L*W, P=2L+2W");
-    pln("SQUARE: A=s^2, P=4s");
-    pln("TRAP: A=0.5h(b1+b2)");
-    pln("TRIANGLE: A=0.5*b*h");
-    pln("Heron:s=(a+b+c)/2");
-    pln(" A=sqrt(s(s-a)(s-b)");
-    any_key();
+    startScreen("|Ax+B|  op  C", "[CLEAR] Back");
+    printSubheader("Enter A, B, C, then op:");
+    printBlank();
+    double A  = inputNumber("A = ");
+    double B  = inputNumber("B = ");
+    double C  = inputNumber("C = ");
+    int    op = inputOperator("Operator:");
+    if (op < 0) return;
+    printDivider();
+    printAbsIneqSolution(A, B, C, op);
+    waitContinue();
 }
 
-static void ref_coord(void)
+/*
+ * Nested absolute value:  ||Ax+B| - C| op D
+ *
+ * Let u = |Ax+B|  (always >= 0).
+ *
+ * LESS (< or <=):
+ *   |u-C| op D  =>  C-D op u op C+D  (intersected with u>=0)
+ *   uHigh = C+D,  uLow = C-D
+ *   If uHigh<=0 : No Solution
+ *   If uLow<=0  : just solve |Ax+B| op uHigh
+ *   If uLow>0   : solve uLow op |Ax+B| op uHigh
+ *                 = two symmetric sub-intervals on the x-axis
+ *
+ * GREATER (> or >=):
+ *   |u-C| op D  =>  u < C-D  or  u > C+D  (intersected with u>=0)
+ *   Part A: |Ax+B| < C-D   (only if C-D > 0)
+ *   Part B: |Ax+B| > C+D
+ */
+static void solveNestedAbsIneq(void)
 {
-    clr();
-    pln("COORD GEO FORMULAS");
-    divider();
-    pln("Distance:");
-    pln("d=sqrt((x2-x1)^2");
-    pln("       +(y2-y1)^2)");
-    pln("Midpoint:");
-    pln("M=((x1+x2)/2,");
-    pln("   (y1+y2)/2)");
-    any_key();
+    startScreen("||Ax+B|-C|  op  D", "[CLEAR] Back");
+    printSubheader("Enter A, B, C, D, then op:");
+    printBlank();
 
-    clr();
-    pln("COORD GEO FORMULAS 2");
-    divider();
-    pln("Slope: m=(y2-y1)/");
-    pln("         (x2-x1)");
-    pln("|| lines: m1 = m2");
-    pln("_|_ lines: m1*m2=-1");
-    pln("Angle: tan(A)=");
-    pln(" |m1-m2|/|1+m1*m2|");
-    any_key();
+    double A  = inputNumber("A = ");
+    double B  = inputNumber("B = ");
+    double C  = inputNumber("C = ");
+    double D  = inputNumber("D = ");
+    int    op = inputOperator("Operator:");
+    if (op < 0) return;
 
-    clr();
-    pln("CONICS");
-    divider();
-    pln("Circle:(x-h)^2+");
-    pln("  (y-k)^2=r^2");
-    pln("Ellipse:(x-h)^2/a^2");
-    pln("  +(y-k)^2/b^2=1");
-    pln("Parabola:(x-h)^2=");
-    pln("  4p(y-k)");
-    any_key();
-}
+    printDivider();
 
-static void ref_inequalities(void)
-{
-    clr();
-    pln("INEQUALITY RULES");
-    divider();
-    pln("Add/Sub: same side");
-    pln("Mul/Div >0: same dir");
-    pln("Mul/Div <0: FLIP dir");
-    pln("|x| < a => -a<x<a");
-    pln("|x| > a =>");
-    pln(" x<-a  or  x>a");
-    any_key();
+    bool isLess   = (op == 0 || op == 1);
+    bool isStrict = (op == 0 || op == 2);
+    char v1[20], v2[20], lineBuf[52];
 
-    clr();
-    pln("SYSTEMS — INEQ.");
-    divider();
-    pln("Graph each boundary.");
-    pln("Shade the region that");
-    pln("satisfies BOTH (AND)");
-    pln("or EITHER (OR).");
-    pln("Test a point to check");
-    pln("which region to shade.");
-    any_key();
+    /* ── D < 0 ── */
+    if (D < -MATH_EPS) {
+        printLine(isLess ? "No Solution" : "All Real Numbers",
+                  isLess ? COL_RED : COL_GREEN);
+        waitContinue();
+        return;
+    }
+
+    /* ── D = 0 ── */
+    if (fabs(D) < MATH_EPS) {
+        if (isStrict && isLess) {
+            printLine("No Solution", COL_RED);
+        } else if (!isStrict && isLess) {
+            /* <= 0  =>  |Ax+B| = C */
+            printLine("|Ax+B| = C:", COL_ORANGE);
+            printAbsEqSolution(A, B, C);
+        } else if (isStrict && !isLess) {
+            /* > 0  =>  all reals except |Ax+B|=C */
+            printLine("All reals except:", COL_GREEN);
+            printAbsEqSolution(A, B, C);
+        } else {
+            /* >= 0 always true */
+            printLine("All Real Numbers", COL_GREEN);
+        }
+        waitContinue();
+        return;
+    }
+
+    /* ── General case ── */
+
+    if (isLess) {
+        double uHigh = C + D;
+        double uLow  = C - D;
+
+        /* uHigh must be positive for any solution to exist */
+        if (uHigh < -MATH_EPS || (isStrict && fabs(uHigh) < MATH_EPS)) {
+            printLine("No Solution", COL_RED);
+            waitContinue();
+            return;
+        }
+
+        /* uLow <= 0: lower bound is 0 (non-negative), so just |Ax+B| op uHigh */
+        if (uLow <= MATH_EPS) {
+            int innerOp = isStrict ? 0 : 1;
+            printAbsIneqSolution(A, B, uHigh, innerOp);
+            waitContinue();
+            return;
+        }
+
+        /* uLow > 0: need  uLow op |Ax+B| op uHigh
+         * Maps to two intervals on x-axis:
+         *   Left wing:   loH  to  loL
+         *   Right wing:  hiL  to  hiH
+         * where loH,hiH come from |Ax+B|=uHigh and loL,hiL from |Ax+B|=uLow
+         */
+        if (fabs(A) < MATH_EPS) {
+            double absB   = fabs(B);
+            bool   inHigh = isStrict ? (absB < uHigh) : (absB <= uHigh);
+            bool   outLow = isStrict ? (absB > uLow)  : (absB >= uLow);
+            printLine((inHigh && outLow) ? "All Real Numbers" : "No Solution",
+                      (inHigh && outLow) ? COL_GREEN : COL_RED);
+            waitContinue();
+            return;
+        }
+
+        double loH = (-uHigh - B) / A;
+        double hiH = ( uHigh - B) / A;
+        if (loH > hiH) { double t = loH; loH = hiH; hiH = t; }
+
+        double loL = (-uLow - B) / A;
+        double hiL = ( uLow - B) / A;
+        if (loL > hiL) { double t = loL; loL = hiL; hiL = t; }
+
+        char ob = isStrict ? '(' : '[';
+        char cb = isStrict ? ')' : ']';
+
+        bool seg1Exists = (loH < loL - MATH_EPS);
+        bool seg2Exists = (hiL < hiH - MATH_EPS);
+
+        if (!seg1Exists && !seg2Exists) {
+            printLine("No Solution", COL_RED);
+            waitContinue();
+            return;
+        }
+        if (seg1Exists) {
+            formatNumber(v1, sizeof(v1), loH);
+            formatNumber(v2, sizeof(v2), loL);
+            snprintf(lineBuf, sizeof(lineBuf), "%c%s, %s%c", ob, v1, v2, cb);
+            printLine(lineBuf, COL_GREEN);
+        }
+        if (seg1Exists && seg2Exists) {
+            printLineIndented("OR", COL_ORANGE, 4);
+        }
+        if (seg2Exists) {
+            formatNumber(v1, sizeof(v1), hiL);
+            formatNumber(v2, sizeof(v2), hiH);
+            snprintf(lineBuf, sizeof(lineBuf), "%c%s, %s%c", ob, v1, v2, cb);
+            printLine(lineBuf, COL_GREEN);
+        }
+
+    } else {
+        /*
+         * |u-C| > D  =>  u < C-D  or  u > C+D
+         * intersected with u>=0:
+         *   Part A: |Ax+B| < C-D   (only if C-D > 0)
+         *   Part B: |Ax+B| > C+D
+         */
+        double uLow  = C - D;
+        double uHigh = C + D;
+
+        bool hasPartA = (uLow > MATH_EPS);
+        int  partAOp  = isStrict ? 0 : 1;   /* < or <= */
+        int  partBOp  = isStrict ? 2 : 3;   /* > or >= */
+
+        /* If uHigh is deeply negative, all u>=0 satisfy u>uHigh -> All Reals */
+        if (uHigh < -MATH_EPS) {
+            printLine("All Real Numbers", COL_GREEN);
+            waitContinue();
+            return;
+        }
+
+        if (hasPartA) {
+            printLine("Part 1:", COL_ORANGE);
+            printAbsIneqSolution(A, B, uLow, partAOp);
+            printLineIndented("OR", COL_ORANGE, 4);
+        }
+        printLine(hasPartA ? "Part 2:" : "", COL_ORANGE);
+        printAbsIneqSolution(A, B, uHigh, partBOp);
+    }
+
+    waitContinue();
 }
 
 /* ═══════════════════════════════════════════════
-   MENU HIERARCHY
+   SECTION 3 — FORMULA REFERENCE
    ═══════════════════════════════════════════════ */
 
-static void menu_equations(void)
+static void showRefAlgebra(void)
 {
-    const char *opts[] = {
-        "Linear  (Ax+B=C)",
-        "Quadratic Eq.",
+    startScreen("ALGEBRA FORMULAS", "[ENTER] Next");
+    printSubheader("Linear & Quadratic");
+    printLine("Line:  y = mx + b",         COL_BLACK);
+    printLine("y-y1 = m(x-x1)",            COL_BLACK);
+    printLine("Quad: ax^2+bx+c=0",         COL_BLACK);
+    printLine("x=(-b+/-sqrt(D))/2a",       COL_BLACK);
+    printLine("D = b^2 - 4ac",             COL_BLACK);
+    printDivider();
+    printLine("D>0: 2 real roots",         COL_BLACK);
+    printLine("D=0: 1 repeated root",      COL_BLACK);
+    printLine("D<0: complex roots",        COL_BLACK);
+    printLine("Vertex x = -b/2a",          COL_BLACK);
+    waitContinue();
+
+    startScreen("ALGEBRA FORMULAS 2", "[ENTER] Done");
+    printSubheader("Special Factors");
+    printLine("a^2-b^2=(a+b)(a-b)",        COL_BLACK);
+    printLine("a^3-b^3=",                   COL_BLACK);
+    printLine(" (a-b)(a^2+ab+b^2)",         COL_BLACK);
+    printLine("a^3+b^3=",                   COL_BLACK);
+    printLine(" (a+b)(a^2-ab+b^2)",         COL_BLACK);
+    printLine("(a+b)^2=a^2+2ab+b^2",       COL_BLACK);
+    printLine("(a-b)^2=a^2-2ab+b^2",       COL_BLACK);
+    waitContinue();
+}
+
+static void showRefInequalityRules(void)
+{
+    startScreen("INEQUALITY RULES", "[ENTER] Done");
+    printSubheader("Key Rules");
+    printLine("Add/subtract both sides",   COL_BLACK);
+    printLine("Mul/div by +: same dir",    COL_BLACK);
+    printLine("Mul/div by -: FLIP dir",    COL_RED);
+    printDivider();
+    printSubheader("Absolute Value");
+    printLine("|x| < a =>",                COL_BLACK);
+    printLine("  -a < x < a",              COL_GREEN);
+    printLine("|x| > a =>",                COL_BLACK);
+    printLine("  x<-a  or  x>a",           COL_GREEN);
+    printLine("|x| = a =>",                COL_BLACK);
+    printLine("  x=a  or  x=-a",           COL_GREEN);
+    waitContinue();
+}
+
+static void showRefGeometry(void)
+{
+    startScreen("GEOMETRY FORMULAS", "[ENTER] Next");
+    printSubheader("Circles & Spheres");
+    printLine("Circle: A=pi*r^2",          COL_BLACK);
+    printLine("        C=2*pi*r",          COL_BLACK);
+    printLine("Sphere: V=(4/3)pi*r^3",     COL_BLACK);
+    printLine("        SA=4*pi*r^2",       COL_BLACK);
+    printDivider();
+    printSubheader("Prisms & Cones");
+    printLine("Cylinder: V=pi*r^2*h",      COL_BLACK);
+    printLine("Cone: V=(1/3)pi*r^2*h",     COL_BLACK);
+    printLine("Rect: A=LW   P=2L+2W",      COL_BLACK);
+    printLine("Trap: A=0.5h(b1+b2)",       COL_BLACK);
+    waitContinue();
+
+    startScreen("GEOMETRY 2", "[ENTER] Done");
+    printSubheader("Triangles");
+    printLine("A=0.5*b*h",                 COL_BLACK);
+    printLine("A=0.5ab*sin(C)",            COL_BLACK);
+    printLine("Heron: s=(a+b+c)/2",        COL_BLACK);
+    printLine(" A=sqrt(s(s-a)(s-b)(s-c))", COL_BLACK);
+    printDivider();
+    printSubheader("Coord Geometry");
+    printLine("d=sqrt((x2-x1)^2",          COL_BLACK);
+    printLine("       +(y2-y1)^2)",         COL_BLACK);
+    printLine("m=(y2-y1)/(x2-x1)",         COL_BLACK);
+    printLine("||: m1=m2  _|_: m1*m2=-1",  COL_BLACK);
+    waitContinue();
+}
+
+/* ═══════════════════════════════════════════════
+   SUB-MENUS
+   ═══════════════════════════════════════════════ */
+
+static void menuEquationsAndInequalities(void)
+{
+    const char *options[] = {
+        "Linear Equation",
+        "Quadratic Equation",
         "Linear Inequality",
+        "Three-Way Inequality",
         "Back"
     };
     int sel;
-    while ((sel = menu("EQUATIONS & INEQ.", opts, 4)) >= 0) {
+    while ((sel = showMenu("EQUATIONS & INEQ.", options, 5)) >= 0) {
         switch (sel) {
-            case 0: eq_linear();    break;
-            case 1: eq_quadratic(); break;
-            case 2: ineq_linear();  break;
+            case 0: solveLinearEquation();     break;
+            case 1: solveQuadraticEquation();  break;
+            case 2: solveLinearInequality();   break;
+            case 3: solveThreeWayInequality(); break;
+            case 4: return;
+        }
+    }
+}
+
+static void menuAbsoluteValue(void)
+{
+    const char *options[] = {
+        "|Ax+B| = C",
+        "|Ax+B| op C",
+        "||Ax+B|-C| op D",
+        "Back"
+    };
+    int sel;
+    while ((sel = showMenu("ABSOLUTE VALUE", options, 4)) >= 0) {
+        switch (sel) {
+            case 0: solveAbsEq();         break;
+            case 1: solveAbsIneq();       break;
+            case 2: solveNestedAbsIneq(); break;
             case 3: return;
         }
     }
 }
 
-static void menu_absval(void)
+static void menuReference(void)
 {
-    const char *opts[] = {
-        "|Ax+B| = C",
-        "|Ax+B| {op} C",
-        "|Ax+B| = |Cx+D|",
-        "Nested ||Ax+B|-C|=D",
-        "|Ax+B|+C {op} D",
-        "Back"
-    };
-    int sel;
-    while ((sel = menu("ABSOLUTE VALUE", opts, 6)) >= 0) {
-        switch (sel) {
-            case 0: absval_eq();            break;
-            case 1: absval_ineq();          break;
-            case 2: absval_eq_eq();         break;
-            case 3: absval_nested();        break;
-            case 4: absval_ineq_combined(); break;
-            case 5: return;
-        }
-    }
-}
-
-static void menu_systems(void)
-{
-    const char *opts[] = {
-        "2x2 System",
-        "3x3 System",
-        "Back"
-    };
-    int sel;
-    while ((sel = menu("SYSTEMS OF EQ.", opts, 3)) >= 0) {
-        switch (sel) {
-            case 0: sys_2x2(); break;
-            case 1: sys_3x3(); break;
-            case 2: return;
-        }
-    }
-}
-
-static void menu_coord(void)
-{
-    const char *opts[] = {
-        "Distance & Midpoint",
-        "Slope & Line Eq.",
-        "Parallel & Perp.",
-        "Angle Btwn. Lines",
-        "Back"
-    };
-    int sel;
-    while ((sel = menu("COORDINATE GEOMETRY", opts, 5)) >= 0) {
-        switch (sel) {
-            case 0: coord_dist_mid();      break;
-            case 1: coord_slope_line();    break;
-            case 2: coord_parallel_perp(); break;
-            case 3: coord_angle_lines();   break;
-            case 4: return;
-        }
-    }
-}
-
-static void menu_reference(void)
-{
-    const char *opts[] = {
+    const char *options[] = {
         "Algebra Formulas",
-        "Geometry Formulas",
-        "Coord. Geometry",
         "Inequality Rules",
+        "Geometry Formulas",
         "Back"
     };
     int sel;
-    while ((sel = menu("FORMULAS & REF.", opts, 5)) >= 0) {
+    while ((sel = showMenu("FORMULAS & REF.", options, 4)) >= 0) {
         switch (sel) {
-            case 0: ref_algebra();      break;
-            case 1: ref_geometry();     break;
-            case 2: ref_coord();        break;
-            case 3: ref_inequalities(); break;
-            case 4: return;
+            case 0: showRefAlgebra();         break;
+            case 1: showRefInequalityRules(); break;
+            case 2: showRefGeometry();        break;
+            case 3: return;
         }
     }
 }
 
-/* ─────────────────────────────────────────────
-   MAIN MENU  (mirrors ACT Helper's top-level)
-   ───────────────────────────────────────────── */
-static void menu_main(void)
+/* ═══════════════════════════════════════════════
+   MAIN MENU
+   ═══════════════════════════════════════════════ */
+
+static void runMainMenu(void)
 {
-    const char *opts[] = {
-        "Equations & Ineq.",
+    const char *options[] = {
+        "Equations & Inequalities",
         "Absolute Value",
-        "Systems of Eq.",
-        "Coordinate Geometry",
-        "Formulas & Ref.",
+        "Formulas & Reference",
         "Quit"
     };
     int sel;
     for (;;) {
-        sel = menu("MATH SOLVER CE", opts, 6);
-        if (sel < 0 || sel == 5) break;
+        sel = showMenu("MATH SOLVER CE", options, 4);
+        if (sel < 0 || sel == 3) break;
         switch (sel) {
-            case 0: menu_equations(); break;
-            case 1: menu_absval();    break;
-            case 2: menu_systems();   break;
-            case 3: menu_coord();     break;
-            case 4: menu_reference(); break;
+            case 0: menuEquationsAndInequalities(); break;
+            case 1: menuAbsoluteValue();            break;
+            case 2: menuReference();                break;
         }
     }
 }
 
-/* ─────────────────────────────────────────────
+/* ═══════════════════════════════════════════════
    ENTRY POINT
-   ───────────────────────────────────────────── */
+   ═══════════════════════════════════════════════ */
+
 int main(void)
 {
-    os_ClrHome();
-    menu_main();
+    gfx_Begin();
+    gfx_SetDrawBuffer();
+    gfx_SetPalette(kPalette, sizeof(kPalette), 0);
 
-    /* Exit screen — mirrors reference program's quit label */
-    os_ClrHome();
-    pln("MATH SOLVER CE");
-    divider();
-    pln("Thank you for using");
-    pln("Math Solver CE.");
-    pln("Goodbye!");
+    runMainMenu();
 
-    /* Brief pause before returning to TI-OS */
-    for (volatile int i = 0; i < 500000; i++);
+    /* Goodbye screen */
+    startScreen("MATH SOLVER CE", "");
+    printBlank();
+    printSubheader("Thank you for using");
+    printLine("MathSolverCE  v2.0", COL_NAVY);
+    printBlank();
+    printLine("Goodbye!", COL_ORANGE);
+    blit();
 
-    os_ClrHome();
+    for (volatile int i = 0; i < 400000; i++);
+
+    gfx_End();
     return 0;
 }
