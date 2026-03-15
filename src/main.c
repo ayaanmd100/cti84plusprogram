@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.3
+ * MathSolverCE  v2.35
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -33,6 +33,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 /* ═══════════════════════════════════════════════
    PALETTE INDICES
@@ -1009,6 +1010,172 @@ static void solveNestedAbsIneq(void)
 }
 
 /* ═══════════════════════════════════════════════
+   NUMBER THEORY — POLLARD'S RHO FACTORIZATION ALGORITHM o(N^1/4) runtime
+   ═══════════════════════════════════════════════ */
+
+static uint32_t gcd32(uint32_t a, uint32_t b)
+{
+    while (b) { uint32_t t = b; b = a % b; a = t; }
+    return a;
+}
+
+static uint32_t pollardRho(uint32_t n)
+{
+    if (n % 2 == 0) return 2;
+    uint32_t x = 2, y = 2, c = 1, d = 1;
+    while (d == 1) {
+        x = (uint32_t)(((uint64_t)x * x + c) % n);
+        y = (uint32_t)(((uint64_t)y * y + c) % n);
+        y = (uint32_t)(((uint64_t)y * y + c) % n);
+        d = gcd32(x > y ? x - y : y - x, n);
+    }
+    if (d == n) {
+        c = (c + 1) % n;
+        x = 2; y = 2; d = 1;
+        while (d == 1) {
+            x = (uint32_t)(((uint64_t)x * x + c) % n);
+            y = (uint32_t)(((uint64_t)y * y + c) % n);
+            y = (uint32_t)(((uint64_t)y * y + c) % n);
+            d = gcd32(x > y ? x - y : y - x, n);
+        }
+    }
+    return (d == n) ? n : d;
+}
+
+static bool millerRabinIsPrime(uint32_t n)
+{
+    if (n < 2)  return false;
+    if (n == 2 || n == 3 || n == 5 || n == 7) return true;
+    if (n % 2 == 0) return false;
+    uint32_t d = n - 1;
+    int      r = 0;
+    while (d % 2 == 0) { d /= 2; r++; }
+    static const uint32_t witnesses[4] = {2, 3, 5, 7};
+    for (int wi = 0; wi < 4; wi++) {
+        uint32_t a = witnesses[wi];
+        if (a >= n) continue;
+        uint64_t base = a, exp = d, mod = n, result = 1;
+        base %= mod;
+        while (exp > 0) {
+            if (exp & 1) result = result * base % mod;
+            exp >>= 1;
+            base = base * base % mod;
+        }
+        uint64_t x = result;
+        if (x == 1 || x == n - 1) continue;
+        bool composite = true;
+        for (int s = 0; s < r - 1; s++) {
+            x = x * x % mod;
+            if (x == n - 1) { composite = false; break; }
+        }
+        if (composite) return false;
+    }
+    return true;
+}
+
+#define MAX_FACTORS 32
+static uint32_t factorList[MAX_FACTORS];
+static int      factorCount = 0;
+
+static void collectFactors(uint32_t n)
+{
+    if (n <= 1) return;
+    if (millerRabinIsPrime(n)) {
+        if (factorCount < MAX_FACTORS)
+            factorList[factorCount++] = n;
+        return;
+    }
+    uint32_t divisor = pollardRho(n);
+    collectFactors(divisor);
+    collectFactors(n / divisor);
+}
+
+static void sortFactors(void)
+{
+    for (int i = 1; i < factorCount; i++) {
+        uint32_t key = factorList[i];
+        int j = i - 1;
+        while (j >= 0 && factorList[j] > key) {
+            factorList[j + 1] = factorList[j];
+            j--;
+        }
+        factorList[j + 1] = key;
+    }
+}
+
+static bool calculateFactorization(uint32_t n)
+{
+    if (n < 2) return false;
+    factorCount = 0;
+    collectFactors(n);
+    sortFactors();
+    return true;
+}
+
+static void solveFactorize(void)
+{
+    RESET_CANCEL();
+    startScreen("PRIME FACTORIZATION", "[CLEAR] Back");
+    printSubheader("Pollard's Rho Algorithm");
+    printBlank();
+
+    double inputVal = inputNumber("N = "); CHECK_CANCEL;
+    uint32_t n = (uint32_t)fabs(round(inputVal));
+
+    printDivider();
+
+    if (!calculateFactorization(n)) {
+        printLine("Enter N >= 2", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    char resultBuf[52];
+    resultBuf[0] = '\0';
+    int i = 0;
+    bool firstTerm = true;
+
+    while (i < factorCount) {
+        uint32_t base = factorList[i];
+        int      exp  = 0;
+        while (i < factorCount && factorList[i] == base) { exp++; i++; }
+        char term[20];
+        if (exp == 1) snprintf(term, sizeof(term), "%lu", (unsigned long)base);
+        else          snprintf(term, sizeof(term), "%lu^%d", (unsigned long)base, exp);
+        if (!firstTerm)
+            strncat(resultBuf, " * ", sizeof(resultBuf) - strlen(resultBuf) - 1);
+        strncat(resultBuf, term, sizeof(resultBuf) - strlen(resultBuf) - 1);
+        firstTerm = false;
+    }
+
+    char lineBuf[52];
+    snprintf(lineBuf, sizeof(lineBuf), "N = %lu", (unsigned long)n);
+    printLine(lineBuf, COL_BLACK);
+
+    if (strlen(resultBuf) <= 36) {
+        printLine(resultBuf, COL_GREEN);
+    } else {
+        char line1[52] = {0}, line2[52] = {0};
+        int split = 36;
+        while (split > 0 && !(resultBuf[split] == '*' && resultBuf[split-1] == ' '))
+            split--;
+        if (split > 0) {
+            strncpy(line1, resultBuf, split - 1);
+            strncpy(line2, resultBuf + split + 2, sizeof(line2) - 1);
+        } else {
+            strncpy(line1, resultBuf, 36);
+            strncpy(line2, resultBuf + 36, sizeof(line2) - 1);
+        }
+        printLine(line1, COL_GREEN);
+        printLine(line2, COL_GREEN);
+    }
+
+    snprintf(lineBuf, sizeof(lineBuf), "%d prime factor(s)", factorCount);
+    printLine(lineBuf, COL_BLACK);
+    waitContinue();
+}
+
+/* ═══════════════════════════════════════════════
    SECTION 3 — FORMULA REFERENCE
    ═══════════════════════════════════════════════ */
 
@@ -1152,6 +1319,21 @@ static void menuReference(void)
     }
 }
 
+static void menuNumberTheory(void)
+{
+    const char *options[] = {
+        "Prime Factorization",
+        "Back"
+    };
+    int sel;
+    while ((sel = showMenu("NUMBER THEORY", options, 2)) >= 0) {
+        switch (sel) {
+            case 0: solveFactorize(); break;
+            case 1: return;
+        }
+    }
+}
+
 /* ═══════════════════════════════════════════════
    MAIN MENU
    ═══════════════════════════════════════════════ */
@@ -1161,17 +1343,19 @@ static void runMainMenu(void)
     const char *options[] = {
         "Equations & Inequalities",
         "Absolute Value",
+        "Number Theory",
         "Formulas & Reference",
         "Quit"
     };
     int sel;
     for (;;) {
         sel = showMenu("MATH SOLVER CE", options, 4);
-        if (sel < 0 || sel == 3) break;
+        if (sel < 0 || sel == 4) break;
         switch (sel) {
             case 0: menuEquationsAndInequalities(); break;
             case 1: menuAbsoluteValue();            break;
-            case 2: menuReference();                break;
+            case 2: menuNumberTheory(); break;
+            case 3: menuReference();    break;
         }
     }
 }
@@ -1192,7 +1376,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.3", COL_NAVY);
+    printLine("MathSolverCE  v2.35", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
