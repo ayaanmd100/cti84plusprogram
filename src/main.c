@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.2
+ * MathSolverCE  v2.3
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -72,7 +72,7 @@ static const uint16_t kPalette[] = {
 #define LMARGIN        8
 
 static const double MATH_EPS = 1e-9;
-static const char  *kOpStr[4] = { "<", "<=", ">", ">=" };
+static const char  *kOpStr[5] = { "<", "<=", ">", ">=", "=" };
 
 /* Current body row (0-based), reset by startScreen() */
 static int gCurrentLine = 0;
@@ -321,7 +321,7 @@ static int inputOperator(const char *promptLabel)
 
     gfx_SetTextFGColor(COL_ORANGE);
     gfx_SetTextBGColor(COL_WHITE);
-    gfx_PrintStringXY("1:<  2:<=  3:>  4:>=", LMARGIN + 12, BODY_TOP + choiceRow * LINE_H);
+    gfx_PrintStringXY("1:<  2:<=  3:>  4:>=  5:=", LMARGIN + 12, BODY_TOP + choiceRow * LINE_H);
     blit();
 
     for (;;) {
@@ -331,6 +331,7 @@ static int inputOperator(const char *promptLabel)
         if (key == sk_2) return 1;
         if (key == sk_3) return 2;
         if (key == sk_4) return 3;
+        if (key == sk_5) return 4;
     }
 }
 
@@ -541,7 +542,25 @@ static void solveLinearInequality(void)
     printLine(lineBuf, COL_GREEN);
     waitContinue();
 }
-
+/* Used only by solveThreeWayInequality — equal sign not valid here */
+static int inputOperatorIneqOnly(const char *promptLabel)
+{
+    for (;;) {
+        int op = inputOperator(promptLabel);
+        if (gUserCancelled) return -1;
+        if (op == 4) {
+            /* flash a warning on the footer, then re-ask */
+            drawFooter("= not valid here. Use <, <=, >, >=");
+            blit();
+            /* small delay so the user can read it */
+            for (volatile int i = 0; i < 200000; i++);
+            /* re-draw the screen minus the footer so the prompt reappears */
+            drawFooter("[CLEAR] Back");
+            continue;
+        }
+        return op;
+    }
+}
 static void solveThreeWayInequality(void)
 {
     RESET_CANCEL();
@@ -550,10 +569,10 @@ static void solveThreeWayInequality(void)
     printBlank();
 
     double leftBound  = inputNumber("C1 = ");             CHECK_CANCEL;
-    int    leftOp     = inputOperator("op1 (C1 op1 Ax+B):"); CHECK_CANCEL;
+    int leftOp  = inputOperatorIneqOnly("op1 (C1 op1 Ax+B):"); CHECK_CANCEL;
     double coeffA     = inputNumber("A = ");              CHECK_CANCEL;
     double constantB  = inputNumber("B = ");              CHECK_CANCEL;
-    int    rightOp    = inputOperator("op2 (Ax+B op2 C2):"); CHECK_CANCEL;
+    int rightOp = inputOperatorIneqOnly("op2 (Ax+B op2 C2):"); CHECK_CANCEL;
     double rightBound = inputNumber("C2 = ");             CHECK_CANCEL;
 
     printDivider();
@@ -801,7 +820,11 @@ static void solveAbsIneq(void)
     double C  = inputNumber("C = "); CHECK_CANCEL;
     int    op = inputOperator("Operator:"); CHECK_CANCEL;
     printDivider();
-    printAbsIneqSolution(A, B, C, op);
+    if (op == 4) {
+        printAbsEqSolution(A, B, C);
+    } else {
+        printAbsIneqSolution(A, B, C, op);
+    }
     waitContinue();
 }
 
@@ -836,6 +859,33 @@ static void solveNestedAbsIneq(void)
     int    op = inputOperator("Operator:"); CHECK_CANCEL;
 
     printDivider();
+
+/* ── Equality: ||Ax+B|-C| = D ──
+ * |Ax+B| - C = +D  =>  |Ax+B| = C+D
+ * |Ax+B| - C = -D  =>  |Ax+B| = C-D      */
+    if (op == 4) {
+        if (D < -MATH_EPS) {
+        printLine("No Solution  (D < 0)", COL_RED);
+        waitContinue();
+        return;
+    }
+        double rhs1 = C + D;
+        double rhs2 = C - D;
+
+        bool has1 = (rhs1 >= -MATH_EPS);
+        bool has2 = (fabs(rhs2) >= MATH_EPS) && (rhs2 >= -MATH_EPS);
+
+        if (!has1 && !has2) {
+            printLine("No Solution", COL_RED);
+        } else {
+            if (has1) printAbsEqSolution(A, B, rhs1);
+            if (has1 && has2) printLineIndented("OR", COL_ORANGE, 4);
+            if (has2) printAbsEqSolution(A, B, rhs2);
+    }
+
+    waitContinue();
+    return;
+    }
 
     bool isLess   = (op == 0 || op == 1);
     bool isStrict = (op == 0 || op == 2);
@@ -1142,7 +1192,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.2", COL_NAVY);
+    printLine("MathSolverCE  v2.3", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
