@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.38
+ * MathSolverCE  v2.39
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -15,6 +15,10 @@
  *           3. ||Ax+B|-C| op D  (nested)
  *     3. Number Theory
  *           1. Prime Factorization.
+ *           2. GCD / HCF
+ *           3. LCM
+ *           4. Perm. & Comb. 
+ *           5. Binomial Theorem.
  * 
  *     4. Formula Reference
  *     5. Quit
@@ -1389,6 +1393,123 @@ static void solvePermComb(void)
     waitContinue();
 }
 
+/*
+ * Binomial Theorem solver using logarithms.
+ *
+ * Expands (ax + b)^n and finds the coefficient of x^p.
+ *
+ * The general term is:
+ *   T(r+1) = C(n,r) * (ax)^(n-r) * b^r
+ *          = C(n,r) * a^(n-r) * b^r * x^(n-r)
+ *
+ * So for the x^p term:  n - r = p  =>  r = n - p
+ *
+ * Coefficient k = C(n,r) * a^(n-r) * b^r
+ *
+ * We compute log10(|k|) using:
+ *   log10(C(n,r)) = Σlog10(i) for i=(n-r+1..n) - Σlog10(i) for i=(1..r)
+ *   log10(|a|^(n-r)) = (n-r) * log10(|a|)
+ *   log10(|b|^r)     = r     * log10(|b|)
+ *
+ * Sign is tracked separately.
+ */
+static void solveBinomialCoeff(void)
+{
+    RESET_CANCEL();
+    startScreen("BINOMIAL THEOREM", "[CLEAR] Back");
+    printSubheader("(ax + b)^n, coeff of x^p");
+    printBlank();
+
+    double a = inputNumber("a = "); CHECK_CANCEL;
+    double b = inputNumber("b = "); CHECK_CANCEL;
+    double nVal = inputNumber("n = "); CHECK_CANCEL;
+    double pVal = inputNumber("x^p, p = "); CHECK_CANCEL;
+
+    printDivider();
+
+    int n = (int)round(nVal);
+    int p = (int)round(pVal);
+
+    /* Basic validation */
+    if (n < 0) {
+        printLine("n must be >= 0", COL_RED);
+        waitContinue();
+        return;
+    }
+    if (p < 0 || p > n) {
+        printLine("p must be 0 <= p <= n", COL_RED);
+        waitContinue();
+        return;
+    }
+    if (fabs(a) < MATH_EPS) {
+        printLine("a cannot be 0", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    int r = n - p;   /* which term of the expansion */
+
+    /* log10(C(n,r)) via log sum — avoids computing the huge integer */
+    double logCnr = 0.0;
+    for (int i = 1; i <= r; i++)
+        logCnr += log10((double)(n - r + i)) - log10((double)i);
+
+    /* log10(|a|^p) and log10(|b|^r) */
+    double logA = (fabs(a) < MATH_EPS) ? 0.0 : (double)p * log10(fabs(a));
+    double logB = (fabs(b) < MATH_EPS) ? 0.0 : (double)r * log10(fabs(b));
+
+    double logCoeff = logCnr + logA + logB;
+
+    /* Determine sign:
+       sign of a^p * b^r  =  sign(a)^p * sign(b)^r */
+    bool aNeg = (a < 0.0);
+    bool bNeg = (b < 0.0);
+    bool resultNeg = (aNeg && (p % 2 != 0)) || (bNeg && (r % 2 != 0));
+
+    /* Special case: b = 0 and r > 0 -> coefficient is 0 */
+    if (fabs(b) < MATH_EPS && r > 0) {
+        printLine("Coefficient = 0", COL_GREEN);
+        printLine("(b=0 kills this term)", COL_BLACK);
+        waitContinue();
+        return;
+    }
+
+    /* Convert log10(|k|) to  m * 10^e  where 1 <= m < 10 */
+    int    exponent = (int)floor(logCoeff);
+    double mantissa = pow(10.0, logCoeff - (double)exponent);
+
+    /* Floating point edge: mantissa can land just below 1.0 */
+    if (mantissa < 1.0 - MATH_EPS) {
+        mantissa *= 10.0;
+        exponent--;
+    }
+
+    char lineBuf[52];
+    char mBuf[20];
+
+    /* Show which term was selected */
+    snprintf(lineBuf, sizeof(lineBuf), "r = %d  (term %d)", r, r + 1);
+    printLine(lineBuf, COL_BLACK);
+
+    /* Show C(n,r) log value as a sanity reference */
+    snprintf(lineBuf, sizeof(lineBuf), "log10|k| = %.4f", logCoeff);
+    printLine(lineBuf, COL_BLACK);
+
+    /* Scientific notation to 4 significant figures */
+    snprintf(mBuf, sizeof(mBuf), "%.4f", mantissa);
+    snprintf(lineBuf, sizeof(lineBuf), "k = %s%sx10^%d",
+             resultNeg ? "-" : "", mBuf, exponent);
+    printLine(lineBuf, COL_GREEN);
+
+    /* If small enough, also show the exact integer */
+    if (logCoeff < 15.0) {
+        double exact = (resultNeg ? -1.0 : 1.0) * pow(10.0, logCoeff);
+        snprintf(lineBuf, sizeof(lineBuf), "k = %.0f (exact)", exact);
+        printLine(lineBuf, COL_GREEN);
+    }
+
+    waitContinue();
+}
 /* ═══════════════════════════════════════════════
    SECTION 3 — FORMULA REFERENCE
    ═══════════════════════════════════════════════ */
@@ -1540,16 +1661,18 @@ static void menuNumberTheory(void)
         "GCD / HCF",
         "LCM",
         "Perm. & Combination",
+        "Binomial Theory - Coeff",
         "Back"
     };
     int sel;
-    while ((sel = showMenu("NUMBER THEORY", options, 5)) >= 0) {
+    while ((sel = showMenu("NUMBER THEORY", options, 6)) >= 0) {
         switch (sel) {
             case 0: solveFactorize(); break;
             case 1: solveGCD();       break;
             case 2: solveLCM();       break;
             case 3: solvePermComb();  break;
-            case 4: return;
+            case 4: solveBinomialCoeff(); break;
+            case 5: return;
         }
     }
 }
@@ -1596,7 +1719,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.38  ", COL_NAVY);
+    printLine("MathSolverCE  v2.39  ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
