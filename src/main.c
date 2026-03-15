@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.36
+ * MathSolverCE  v2.37
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -13,8 +13,11 @@
  *           1. |Ax+B| = C
  *           2. |Ax+B| op C
  *           3. ||Ax+B|-C| op D  (nested)
- *     3. Formula Reference
- *     4. Quit
+ *     3. Number Theory
+ *           1. Prime Factorization.
+ * 
+ *     4. Formula Reference
+ *     5. Quit
  *
  * Key legend:
  *   [1-9]    select menu item
@@ -1019,6 +1022,12 @@ static uint32_t gcd32(uint32_t a, uint32_t b)
     return a;
 }
 
+static uint32_t lcm32(uint32_t a, uint32_t b)
+{
+    if (a == 0 || b == 0) return 0;
+    return (a / gcd32(a, b)) * b;   /* divide first to avoid overflow */
+}
+
 static uint32_t pollardRho(uint32_t n)
 {
     if (n % 2 == 0) return 2;
@@ -1182,6 +1191,114 @@ static void solveFactorize(void)
     waitContinue();
 }
 
+static void solveGCD(void)
+{
+    RESET_CANCEL();
+    startScreen("GCD / HCF", "[CLEAR] Back");
+    printSubheader("Greatest Common Divisor");
+    printBlank();
+
+    double countVal = inputNumber("How many numbers? "); CHECK_CANCEL;
+    int count = (int)round(countVal);
+
+    if (count < 2) {
+        printDivider();
+        printLine("Enter at least 2", COL_RED);
+        waitContinue();
+        return;
+    }
+    if (count > 10) {
+        printDivider();
+        printLine("Max 10 numbers", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    uint32_t numbers[10];
+    char prompt[12];
+    for (int i = 0; i < count; i++) {
+        snprintf(prompt, sizeof(prompt), "N%d = ", i + 1);
+        double val = inputNumber(prompt); CHECK_CANCEL;
+        numbers[i] = (uint32_t)fabs(round(val));
+        if (numbers[i] == 0) {
+            printDivider();
+            printLine("0 not allowed", COL_RED);
+            waitContinue();
+            return;
+        }
+    }
+
+    /* Accumulate GCD across all entered numbers */
+    uint32_t result = numbers[0];
+    for (int i = 1; i < count; i++)
+        result = gcd32(result, numbers[i]);
+
+    printDivider();
+
+    char lineBuf[52];
+    snprintf(lineBuf, sizeof(lineBuf), "GCD = %lu", (unsigned long)result);
+    printLine(lineBuf, COL_GREEN);
+    waitContinue();
+}
+
+static void solveLCM(void)
+{
+    RESET_CANCEL();
+    startScreen("LCM", "[CLEAR] Back");
+    printSubheader("Least Common Multiple");
+    printBlank();
+
+    double countVal = inputNumber("How many numbers? "); CHECK_CANCEL;
+    int count = (int)round(countVal);
+
+    if (count < 2) {
+        printDivider();
+        printLine("Enter at least 2", COL_RED);
+        waitContinue();
+        return;
+    }
+    if (count > 10) {
+        printDivider();
+        printLine("Max 10 numbers", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    uint32_t numbers[10];
+    char prompt[12];
+    for (int i = 0; i < count; i++) {
+        snprintf(prompt, sizeof(prompt), "N%d = ", i + 1);
+        double val = inputNumber(prompt); CHECK_CANCEL;
+        numbers[i] = (uint32_t)fabs(round(val));
+        if (numbers[i] == 0) {
+            printDivider();
+            printLine("0 not allowed", COL_RED);
+            waitContinue();
+            return;
+        }
+    }
+
+    /* Accumulate LCM across all entered numbers */
+    uint32_t result = numbers[0];
+    for (int i = 1; i < count; i++) {
+        result = lcm32(result, numbers[i]);
+        /* Guard against overflow — LCM can grow very fast */
+        if (result == 0) {
+            printDivider();
+            printLine("Overflow: too large", COL_RED);
+            waitContinue();
+            return;
+        }
+    }
+
+    printDivider();
+
+    char lineBuf[52];
+    snprintf(lineBuf, sizeof(lineBuf), "LCM = %lu", (unsigned long)result);
+    printLine(lineBuf, COL_GREEN);
+    waitContinue();
+}
+
 /* ═══════════════════════════════════════════════
    SECTION 3 — FORMULA REFERENCE
    ═══════════════════════════════════════════════ */
@@ -1330,13 +1447,17 @@ static void menuNumberTheory(void)
 {
     const char *options[] = {
         "Prime Factorization",
+        "GCD / HCF",
+        "LCM",
         "Back"
     };
     int sel;
-    while ((sel = showMenu("NUMBER THEORY", options, 2)) >= 0) {
+    while ((sel = showMenu("NUMBER THEORY", options, 4)) >= 0) {
         switch (sel) {
             case 0: solveFactorize(); break;
-            case 1: return;
+            case 1: solveGCD(); break;
+            case 2: solveLCM(); break;
+            case 3: return;
         }
     }
 }
@@ -1383,7 +1504,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.36", COL_NAVY);
+    printLine("MathSolverCE  v2.37  ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
