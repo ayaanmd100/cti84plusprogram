@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.37
+ * MathSolverCE  v2.38
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -1028,6 +1028,48 @@ static uint32_t lcm32(uint32_t a, uint32_t b)
     return (a / gcd32(a, b)) * b;   /* divide first to avoid overflow */
 }
 
+/* nPr = n * (n-1) * ... * (n-r+1)
+   Returns 0 on overflow or invalid input. */
+static unsigned long long permutation(int n, int r)
+{
+    if (r < 0 || r > n || n < 0) return 0ULL;
+    if (r == 0) return 1ULL;
+
+    unsigned long long result = 1ULL;
+    for (int i = 0; i < r; i++) {
+        /* Overflow check before multiplying */
+        if (result > 0xFFFFFFFFFFFFFFFFULL / (unsigned long long)(n - i)) {
+            return 0ULL;   /* signal overflow */
+        }
+        result *= (unsigned long long)(n - i);
+    }
+    return result;
+}
+
+/* nCr computed iteratively — divides at each step to keep values small.
+   C(n,r) = (n/1) * ((n-1)/2) * ((n-2)/3) * ... * ((n-r+1)/r)
+   Each intermediate result is always an exact integer.
+   Returns 0 on overflow or invalid input. */
+static unsigned long long combination(int n, int r)
+{
+    if (r < 0 || r > n || n < 0) return 0ULL;
+    if (r == 0 || r == n) return 1ULL;
+
+    /* Use the smaller of r and n-r for fewer iterations */
+    if (r > n - r) r = n - r;
+
+    unsigned long long result = 1ULL;
+    for (int i = 0; i < r; i++) {
+        /* Overflow check before multiplying */
+        if (result > 0xFFFFFFFFFFFFFFFFULL / (unsigned long long)(n - i)) {
+            return 0ULL;   /* signal overflow */
+        }
+        result *= (unsigned long long)(n - i);
+        result /= (unsigned long long)(i + 1);
+    }
+    return result;
+}
+
 static uint32_t pollardRho(uint32_t n)
 {
     if (n % 2 == 0) return 2;
@@ -1299,6 +1341,54 @@ static void solveLCM(void)
     waitContinue();
 }
 
+static void solvePermComb(void)
+{
+    RESET_CANCEL();
+    startScreen("PERM. & COMBINATION", "[CLEAR] Back");
+    printSubheader("nPr  and  nCr");
+    printBlank();
+
+    double totalVal = inputNumber("Total (n) = "); CHECK_CANCEL;
+    double takenVal = inputNumber("Taken (r) = "); CHECK_CANCEL;
+
+    int n = (int)round(totalVal);
+    int r = (int)round(takenVal);
+
+    printDivider();
+
+    if (n < 0 || r < 0) {
+        printLine("n and r must be >= 0", COL_RED);
+        waitContinue();
+        return;
+    }
+    if (r > n) {
+        printLine("r must be <= n", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    unsigned long long npr = permutation(n, r);
+    unsigned long long ncr = combination(n, r);
+
+    char lineBuf[52];
+
+    if (npr == 0 && r != 0) {
+        printLine("(order) nPr = overflow", COL_RED);
+    } else {
+        snprintf(lineBuf, sizeof(lineBuf), "(order) nPr = %llu", npr);
+        printLine(lineBuf, COL_GREEN);
+    }
+
+    if (ncr == 0 && r != 0) {
+        printLine("(no order) nCr = overflow", COL_RED);
+    } else {
+        snprintf(lineBuf, sizeof(lineBuf), "(no order) nCr = %llu", ncr);
+        printLine(lineBuf, COL_GREEN);
+    }
+
+    waitContinue();
+}
+
 /* ═══════════════════════════════════════════════
    SECTION 3 — FORMULA REFERENCE
    ═══════════════════════════════════════════════ */
@@ -1449,15 +1539,17 @@ static void menuNumberTheory(void)
         "Prime Factorization",
         "GCD / HCF",
         "LCM",
+        "Perm. & Combination",
         "Back"
     };
     int sel;
-    while ((sel = showMenu("NUMBER THEORY", options, 4)) >= 0) {
+    while ((sel = showMenu("NUMBER THEORY", options, 5)) >= 0) {
         switch (sel) {
             case 0: solveFactorize(); break;
-            case 1: solveGCD(); break;
-            case 2: solveLCM(); break;
-            case 3: return;
+            case 1: solveGCD();       break;
+            case 2: solveLCM();       break;
+            case 3: solvePermComb();  break;
+            case 4: return;
         }
     }
 }
@@ -1504,7 +1596,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.37  ", COL_NAVY);
+    printLine("MathSolverCE  v2.38  ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
