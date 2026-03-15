@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.35
+ * MathSolverCE  v2.36
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -1116,10 +1116,17 @@ static void solveFactorize(void)
 {
     RESET_CANCEL();
     startScreen("PRIME FACTORIZATION", "[CLEAR] Back");
-    printSubheader("Pollard's Rho Algorithm");
+    printSubheader("(Max: 2147483647 - 32 bit signed integer limit.");
     printBlank();
 
     double inputVal = inputNumber("N = "); CHECK_CANCEL;
+
+    if(inputVal >= 2147483647.0){
+        printLine("Input reached or exceeded 32bit int limit.", COL_RED);
+        waitContinue();
+        return;
+    }
+
     uint32_t n = (uint32_t)fabs(round(inputVal));
 
     printDivider();
@@ -1349,7 +1356,7 @@ static void runMainMenu(void)
     };
     int sel;
     for (;;) {
-        sel = showMenu("MATH SOLVER CE", options, 4);
+        sel = showMenu("MATH SOLVER CE", options, 5);
         if (sel < 0 || sel == 4) break;
         switch (sel) {
             case 0: menuEquationsAndInequalities(); break;
@@ -1376,7 +1383,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.35", COL_NAVY);
+    printLine("MathSolverCE  v2.36", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
