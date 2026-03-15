@@ -18,7 +18,7 @@
  *
  * Key legend:
  *   [1-9]    select menu item
- *   [CLEAR]  back / quit
+ *   [CLEAR]  back / quit at any point, including mid-input
  *   [ENTER]  confirm number entry
  *   [(-)  ]  toggle negative sign
  *   [.    ]  decimal point
@@ -185,7 +185,31 @@ static void waitContinue(void)
 }
 
 /* ═══════════════════════════════════════════════
+   CANCELLATION FLAG
+   ─────────────────────────────────────────────
+   gUserCancelled is set to true by inputNumber()
+   or inputOperator() when [CLEAR] is pressed.
+
+   Every solver:
+     1. calls RESET_CANCEL() at the very top
+     2. places CHECK_CANCEL on the same line as
+        (or the line immediately after) every
+        inputNumber() / inputOperator() call.
+
+   CHECK_CANCEL evaluates to an immediate return
+   from the calling solver, dropping back to the
+   sub-menu loop cleanly.
+   ═══════════════════════════════════════════════ */
+
+static bool gUserCancelled = false;
+
+#define RESET_CANCEL()  (gUserCancelled = false)
+#define CHECK_CANCEL    do { if (gUserCancelled) return; } while (0)
+
+/* ═══════════════════════════════════════════════
    NUMBER INPUT
+   [CLEAR] sets gUserCancelled = true and returns
+   0.0 so the caller's CHECK_CANCEL fires.
    ═══════════════════════════════════════════════ */
 
 #define MAX_INPUT_LEN 18
@@ -222,6 +246,11 @@ static double inputNumber(const char *prompt)
 
         uint8_t key = waitForKey();
 
+        if (key == sk_Clear) {
+            gUserCancelled = true;
+            gCurrentLine   = savedLine + 1;
+            return 0.0;
+        }
         if (key == sk_Enter) {
             gCurrentLine = savedLine + 1;
             return (inputLen == 0) ? 0.0 : atof(inputBuf);
@@ -276,7 +305,8 @@ static double inputNumber(const char *prompt)
 
 /* ═══════════════════════════════════════════════
    OPERATOR SELECTION
-   Returns 0=<  1=<=  2=>  3=>=  -1=CLEAR
+   Returns 0=<  1=<=  2=>  3=>=
+   [CLEAR] sets gUserCancelled = true, returns -1.
    ═══════════════════════════════════════════════ */
 
 static int inputOperator(const char *promptLabel)
@@ -287,18 +317,16 @@ static int inputOperator(const char *promptLabel)
 
     gfx_SetTextFGColor(COL_NAVY);
     gfx_SetTextBGColor(COL_WHITE);
-    gfx_PrintStringXY(promptLabel,
-                      LMARGIN, BODY_TOP + labelRow * LINE_H);
+    gfx_PrintStringXY(promptLabel, LMARGIN, BODY_TOP + labelRow * LINE_H);
 
     gfx_SetTextFGColor(COL_ORANGE);
     gfx_SetTextBGColor(COL_WHITE);
-    gfx_PrintStringXY("1:<  2:<=  3:>  4:>=",
-                      LMARGIN + 12, BODY_TOP + choiceRow * LINE_H);
+    gfx_PrintStringXY("1:<  2:<=  3:>  4:>=", LMARGIN + 12, BODY_TOP + choiceRow * LINE_H);
     blit();
 
     for (;;) {
         uint8_t key = waitForKey();
-        if (key == sk_Clear) return -1;
+        if (key == sk_Clear) { gUserCancelled = true; return -1; }
         if (key == sk_1) return 0;
         if (key == sk_2) return 1;
         if (key == sk_3) return 2;
@@ -374,13 +402,14 @@ static int showMenu(const char *title, const char *options[], int optionCount)
 
 static void solveLinearEquation(void)
 {
+    RESET_CANCEL();
     startScreen("LINEAR EQUATION", "[CLEAR] Back");
     printSubheader("Ax + B = C");
     printBlank();
 
-    double coeffA    = inputNumber("A = ");
-    double constantB = inputNumber("B = ");
-    double constantC = inputNumber("C = ");
+    double coeffA    = inputNumber("A = "); CHECK_CANCEL;
+    double constantB = inputNumber("B = "); CHECK_CANCEL;
+    double constantC = inputNumber("C = "); CHECK_CANCEL;
     printDivider();
 
     char numBuf[20], lineBuf[48];
@@ -400,13 +429,14 @@ static void solveLinearEquation(void)
 
 static void solveQuadraticEquation(void)
 {
+    RESET_CANCEL();
     startScreen("QUADRATIC EQUATION", "[CLEAR] Back");
     printSubheader("Ax^2 + Bx + C = 0");
     printBlank();
 
-    double coeffA = inputNumber("A = ");
-    double coeffB = inputNumber("B = ");
-    double coeffC = inputNumber("C = ");
+    double coeffA = inputNumber("A = "); CHECK_CANCEL;
+    double coeffB = inputNumber("B = "); CHECK_CANCEL;
+    double coeffC = inputNumber("C = "); CHECK_CANCEL;
     printDivider();
 
     char n1[20], n2[20], lineBuf[52];
@@ -426,9 +456,9 @@ static void solveQuadraticEquation(void)
         return;
     }
 
-    double disc   = coeffB * coeffB - 4.0 * coeffA * coeffC;
-    double vertX  = -coeffB / (2.0 * coeffA);
-    double vertY  = coeffA * vertX * vertX + coeffB * vertX + coeffC;
+    double disc  = coeffB * coeffB - 4.0 * coeffA * coeffC;
+    double vertX = -coeffB / (2.0 * coeffA);
+    double vertY = coeffA * vertX * vertX + coeffB * vertX + coeffC;
 
     formatNumber(n1, sizeof(n1), disc);
     snprintf(lineBuf, sizeof(lineBuf), "Discriminant = %s", n1);
@@ -475,15 +505,15 @@ static int flipOp(int op)
 
 static void solveLinearInequality(void)
 {
+    RESET_CANCEL();
     startScreen("LINEAR INEQUALITY", "[CLEAR] Back");
     printSubheader("Ax + B  op  C");
     printBlank();
 
-    double coeffA    = inputNumber("A = ");
-    double constantB = inputNumber("B = ");
-    double constantC = inputNumber("C = ");
-    int    op        = inputOperator("Operator:");
-    if (op < 0) return;
+    double coeffA    = inputNumber("A = "); CHECK_CANCEL;
+    double constantB = inputNumber("B = "); CHECK_CANCEL;
+    double constantC = inputNumber("C = "); CHECK_CANCEL;
+    int    op        = inputOperator("Operator:"); CHECK_CANCEL;
 
     printDivider();
 
@@ -514,18 +544,17 @@ static void solveLinearInequality(void)
 
 static void solveThreeWayInequality(void)
 {
+    RESET_CANCEL();
     startScreen("THREE-WAY INEQUALITY", "[CLEAR] Back");
     printSubheader("C1 op1  Ax+B  op2 C2");
     printBlank();
 
-    double leftBound  = inputNumber("C1 = ");
-    int    leftOp     = inputOperator("op1 (C1 op1 Ax+B):");
-    if (leftOp < 0) return;
-    double coeffA     = inputNumber("A = ");
-    double constantB  = inputNumber("B = ");
-    int    rightOp    = inputOperator("op2 (Ax+B op2 C2):");
-    if (rightOp < 0) return;
-    double rightBound = inputNumber("C2 = ");
+    double leftBound  = inputNumber("C1 = ");             CHECK_CANCEL;
+    int    leftOp     = inputOperator("op1 (C1 op1 Ax+B):"); CHECK_CANCEL;
+    double coeffA     = inputNumber("A = ");              CHECK_CANCEL;
+    double constantB  = inputNumber("B = ");              CHECK_CANCEL;
+    int    rightOp    = inputOperator("op2 (Ax+B op2 C2):"); CHECK_CANCEL;
+    double rightBound = inputNumber("C2 = ");             CHECK_CANCEL;
 
     printDivider();
 
@@ -534,7 +563,7 @@ static void solveThreeWayInequality(void)
     /* A = 0: constant check only */
     if (fabs(coeffA) < MATH_EPS) {
         bool leftOk, rightOk;
-        switch (leftOp)  {
+        switch (leftOp) {
             case 0: leftOk  = (leftBound <  constantB); break;
             case 1: leftOk  = (leftBound <= constantB); break;
             case 2: leftOk  = (leftBound >  constantB); break;
@@ -562,11 +591,11 @@ static void solveThreeWayInequality(void)
      *   -> isolate x        -> "x rightOp (C2-B)/A"
      *   -> if A<0, flip
      */
-    int    xOpLeft   = flipOp(leftOp);
+    int    xOpLeft     = flipOp(leftOp);
     if (coeffA < 0.0) xOpLeft = flipOp(xOpLeft);
     double xBoundLeft  = (leftBound  - constantB) / coeffA;
 
-    int    xOpRight  = rightOp;
+    int    xOpRight    = rightOp;
     if (coeffA < 0.0) xOpRight = flipOp(xOpRight);
     double xBoundRight = (rightBound - constantB) / coeffA;
 
@@ -589,7 +618,7 @@ static void solveThreeWayInequality(void)
         if (leftIsLower) {
             if (fabs(xBoundLeft - xBoundRight) < MATH_EPS) {
                 chosenBound = xBoundLeft;
-                chosenOp = (xOpLeft == 2 || xOpRight == 2) ? 2 : 3;
+                chosenOp    = (xOpLeft == 2 || xOpRight == 2) ? 2 : 3;
             } else if (xBoundLeft > xBoundRight) {
                 chosenBound = xBoundLeft;  chosenOp = xOpLeft;
             } else {
@@ -598,7 +627,7 @@ static void solveThreeWayInequality(void)
         } else {
             if (fabs(xBoundLeft - xBoundRight) < MATH_EPS) {
                 chosenBound = xBoundLeft;
-                chosenOp = (xOpLeft == 0 || xOpRight == 0) ? 0 : 1;
+                chosenOp    = (xOpLeft == 0 || xOpRight == 0) ? 0 : 1;
             } else if (xBoundLeft < xBoundRight) {
                 chosenBound = xBoundLeft;  chosenOp = xOpLeft;
             } else {
@@ -712,25 +741,16 @@ static void printAbsIneqSolution(double A, double B, double rhs, int opType)
         }
         double boundLo = (-rhs - B) / A;
         double boundHi = ( rhs - B) / A;
-        if (boundLo > boundHi) {
-            double t = boundLo; boundLo = boundHi; boundHi = t;
-        }
+        if (boundLo > boundHi) { double t = boundLo; boundLo = boundHi; boundHi = t; }
         formatNumber(v1, sizeof(v1), boundLo);
         formatNumber(v2, sizeof(v2), boundHi);
         const char *opStr = isStrict ? "<" : "<=";
-        snprintf(lineBuf, sizeof(lineBuf), "%s %s x %s %s",
-                 v1, opStr, opStr, v2);
+        snprintf(lineBuf, sizeof(lineBuf), "%s %s x %s %s", v1, opStr, opStr, v2);
         printLine(lineBuf, COL_GREEN);
 
     } else {
-        if (rhs < -MATH_EPS) {
-            printLine("All Real Numbers", COL_GREEN);
-            return;
-        }
-        if (!isStrict && fabs(rhs) < MATH_EPS) {
-            printLine("All Real Numbers", COL_GREEN);
-            return;
-        }
+        if (rhs < -MATH_EPS) { printLine("All Real Numbers", COL_GREEN); return; }
+        if (!isStrict && fabs(rhs) < MATH_EPS) { printLine("All Real Numbers", COL_GREEN); return; }
         if (fabs(A) < MATH_EPS) {
             bool ok = isStrict ? (fabs(B) > rhs) : (fabs(B) >= rhs);
             printLine(ok ? "All Real Numbers" : "No Solution",
@@ -739,9 +759,7 @@ static void printAbsIneqSolution(double A, double B, double rhs, int opType)
         }
         double boundLo = (-rhs - B) / A;
         double boundHi = ( rhs - B) / A;
-        if (boundLo > boundHi) {
-            double t = boundLo; boundLo = boundHi; boundHi = t;
-        }
+        if (boundLo > boundHi) { double t = boundLo; boundLo = boundHi; boundHi = t; }
         formatNumber(v1, sizeof(v1), boundLo);
         formatNumber(v2, sizeof(v2), boundHi);
         const char *lopStr = isStrict ? "<"  : "<=";
@@ -758,12 +776,14 @@ static void printAbsIneqSolution(double A, double B, double rhs, int opType)
 
 static void solveAbsEq(void)
 {
+    RESET_CANCEL();
     startScreen("|Ax + B| = C", "[CLEAR] Back");
     printSubheader("Enter A, B, C:");
     printBlank();
-    double A = inputNumber("A = ");
-    double B = inputNumber("B = ");
-    double C = inputNumber("C = ");
+
+    double A = inputNumber("A = "); CHECK_CANCEL;
+    double B = inputNumber("B = "); CHECK_CANCEL;
+    double C = inputNumber("C = "); CHECK_CANCEL;
     printDivider();
     printAbsEqSolution(A, B, C);
     waitContinue();
@@ -771,14 +791,15 @@ static void solveAbsEq(void)
 
 static void solveAbsIneq(void)
 {
+    RESET_CANCEL();
     startScreen("|Ax+B|  op  C", "[CLEAR] Back");
     printSubheader("Enter A, B, C, then op:");
     printBlank();
-    double A  = inputNumber("A = ");
-    double B  = inputNumber("B = ");
-    double C  = inputNumber("C = ");
-    int    op = inputOperator("Operator:");
-    if (op < 0) return;
+
+    double A  = inputNumber("A = "); CHECK_CANCEL;
+    double B  = inputNumber("B = "); CHECK_CANCEL;
+    double C  = inputNumber("C = "); CHECK_CANCEL;
+    int    op = inputOperator("Operator:"); CHECK_CANCEL;
     printDivider();
     printAbsIneqSolution(A, B, C, op);
     waitContinue();
@@ -790,30 +811,29 @@ static void solveAbsIneq(void)
  * Let u = |Ax+B|  (always >= 0).
  *
  * LESS (< or <=):
- *   |u-C| op D  =>  C-D op u op C+D  (intersected with u>=0)
- *   uHigh = C+D,  uLow = C-D
- *   If uHigh<=0 : No Solution
- *   If uLow<=0  : just solve |Ax+B| op uHigh
- *   If uLow>0   : solve uLow op |Ax+B| op uHigh
- *                 = two symmetric sub-intervals on the x-axis
+ *   C-D < u < C+D  intersected with u>=0
+ *   uHigh=C+D, uLow=C-D
+ *   uHigh<=0  -> No Solution
+ *   uLow<=0   -> |Ax+B| op uHigh  (single abs ineq)
+ *   uLow>0    -> two symmetric sub-intervals on x-axis
  *
  * GREATER (> or >=):
- *   |u-C| op D  =>  u < C-D  or  u > C+D  (intersected with u>=0)
- *   Part A: |Ax+B| < C-D   (only if C-D > 0)
+ *   u < C-D  or  u > C+D  intersected with u>=0
+ *   Part A: |Ax+B| < C-D  (only if C-D > 0)
  *   Part B: |Ax+B| > C+D
  */
 static void solveNestedAbsIneq(void)
 {
+    RESET_CANCEL();
     startScreen("||Ax+B|-C|  op  D", "[CLEAR] Back");
     printSubheader("Enter A, B, C, D, then op:");
     printBlank();
 
-    double A  = inputNumber("A = ");
-    double B  = inputNumber("B = ");
-    double C  = inputNumber("C = ");
-    double D  = inputNumber("D = ");
-    int    op = inputOperator("Operator:");
-    if (op < 0) return;
+    double A  = inputNumber("A = "); CHECK_CANCEL;
+    double B  = inputNumber("B = "); CHECK_CANCEL;
+    double C  = inputNumber("C = "); CHECK_CANCEL;
+    double D  = inputNumber("D = "); CHECK_CANCEL;
+    int    op = inputOperator("Operator:"); CHECK_CANCEL;
 
     printDivider();
 
@@ -834,15 +854,12 @@ static void solveNestedAbsIneq(void)
         if (isStrict && isLess) {
             printLine("No Solution", COL_RED);
         } else if (!isStrict && isLess) {
-            /* <= 0  =>  |Ax+B| = C */
             printLine("|Ax+B| = C:", COL_ORANGE);
             printAbsEqSolution(A, B, C);
         } else if (isStrict && !isLess) {
-            /* > 0  =>  all reals except |Ax+B|=C */
             printLine("All reals except:", COL_GREEN);
             printAbsEqSolution(A, B, C);
         } else {
-            /* >= 0 always true */
             printLine("All Real Numbers", COL_GREEN);
         }
         waitContinue();
@@ -855,27 +872,20 @@ static void solveNestedAbsIneq(void)
         double uHigh = C + D;
         double uLow  = C - D;
 
-        /* uHigh must be positive for any solution to exist */
         if (uHigh < -MATH_EPS || (isStrict && fabs(uHigh) < MATH_EPS)) {
             printLine("No Solution", COL_RED);
             waitContinue();
             return;
         }
 
-        /* uLow <= 0: lower bound is 0 (non-negative), so just |Ax+B| op uHigh */
         if (uLow <= MATH_EPS) {
-            int innerOp = isStrict ? 0 : 1;
-            printAbsIneqSolution(A, B, uHigh, innerOp);
+            /* Lower bound is 0 — just a single abs inequality */
+            printAbsIneqSolution(A, B, uHigh, isStrict ? 0 : 1);
             waitContinue();
             return;
         }
 
-        /* uLow > 0: need  uLow op |Ax+B| op uHigh
-         * Maps to two intervals on x-axis:
-         *   Left wing:   loH  to  loL
-         *   Right wing:  hiL  to  hiH
-         * where loH,hiH come from |Ax+B|=uHigh and loL,hiL from |Ax+B|=uLow
-         */
+        /* uLow > 0: two sub-intervals */
         if (fabs(A) < MATH_EPS) {
             double absB   = fabs(B);
             bool   inHigh = isStrict ? (absB < uHigh) : (absB <= uHigh);
@@ -886,35 +896,35 @@ static void solveNestedAbsIneq(void)
             return;
         }
 
-        double loH = (-uHigh - B) / A;
-        double hiH = ( uHigh - B) / A;
+        /* Boundaries from |Ax+B| = uHigh */
+        double loH = (-uHigh - B) / A, hiH = ( uHigh - B) / A;
         if (loH > hiH) { double t = loH; loH = hiH; hiH = t; }
 
-        double loL = (-uLow - B) / A;
-        double hiL = ( uLow - B) / A;
+        /* Boundaries from |Ax+B| = uLow */
+        double loL = (-uLow - B) / A, hiL = ( uLow - B) / A;
         if (loL > hiL) { double t = loL; loL = hiL; hiL = t; }
 
         char ob = isStrict ? '(' : '[';
         char cb = isStrict ? ')' : ']';
 
-        bool seg1Exists = (loH < loL - MATH_EPS);
-        bool seg2Exists = (hiL < hiH - MATH_EPS);
+        bool seg1 = (loH < loL - MATH_EPS);
+        bool seg2 = (hiL < hiH - MATH_EPS);
 
-        if (!seg1Exists && !seg2Exists) {
+        if (!seg1 && !seg2) {
             printLine("No Solution", COL_RED);
             waitContinue();
             return;
         }
-        if (seg1Exists) {
+        if (seg1) {
             formatNumber(v1, sizeof(v1), loH);
             formatNumber(v2, sizeof(v2), loL);
             snprintf(lineBuf, sizeof(lineBuf), "%c%s, %s%c", ob, v1, v2, cb);
             printLine(lineBuf, COL_GREEN);
         }
-        if (seg1Exists && seg2Exists) {
+        if (seg1 && seg2) {
             printLineIndented("OR", COL_ORANGE, 4);
         }
-        if (seg2Exists) {
+        if (seg2) {
             formatNumber(v1, sizeof(v1), hiL);
             formatNumber(v2, sizeof(v2), hiH);
             snprintf(lineBuf, sizeof(lineBuf), "%c%s, %s%c", ob, v1, v2, cb);
@@ -922,32 +932,26 @@ static void solveNestedAbsIneq(void)
         }
 
     } else {
-        /*
-         * |u-C| > D  =>  u < C-D  or  u > C+D
-         * intersected with u>=0:
-         *   Part A: |Ax+B| < C-D   (only if C-D > 0)
-         *   Part B: |Ax+B| > C+D
-         */
+        /* Greater-than case */
         double uLow  = C - D;
         double uHigh = C + D;
 
-        bool hasPartA = (uLow > MATH_EPS);
-        int  partAOp  = isStrict ? 0 : 1;   /* < or <= */
-        int  partBOp  = isStrict ? 2 : 3;   /* > or >= */
-
-        /* If uHigh is deeply negative, all u>=0 satisfy u>uHigh -> All Reals */
         if (uHigh < -MATH_EPS) {
             printLine("All Real Numbers", COL_GREEN);
             waitContinue();
             return;
         }
 
+        bool hasPartA = (uLow > MATH_EPS);
+        int  partAOp  = isStrict ? 0 : 1;
+        int  partBOp  = isStrict ? 2 : 3;
+
         if (hasPartA) {
             printLine("Part 1:", COL_ORANGE);
             printAbsIneqSolution(A, B, uLow, partAOp);
             printLineIndented("OR", COL_ORANGE, 4);
+            printLine("Part 2:", COL_ORANGE);
         }
-        printLine(hasPartA ? "Part 2:" : "", COL_ORANGE);
         printAbsIneqSolution(A, B, uHigh, partBOp);
     }
 
@@ -962,27 +966,27 @@ static void showRefAlgebra(void)
 {
     startScreen("ALGEBRA FORMULAS", "[ENTER] Next");
     printSubheader("Linear & Quadratic");
-    printLine("Line:  y = mx + b",         COL_BLACK);
-    printLine("y-y1 = m(x-x1)",            COL_BLACK);
-    printLine("Quad: ax^2+bx+c=0",         COL_BLACK);
-    printLine("x=(-b+/-sqrt(D))/2a",       COL_BLACK);
-    printLine("D = b^2 - 4ac",             COL_BLACK);
+    printLine("Line:  y = mx + b",          COL_BLACK);
+    printLine("y-y1 = m(x-x1)",             COL_BLACK);
+    printLine("Quad: ax^2+bx+c=0",          COL_BLACK);
+    printLine("x=(-b+/-sqrt(D))/2a",        COL_BLACK);
+    printLine("D = b^2 - 4ac",              COL_BLACK);
     printDivider();
-    printLine("D>0: 2 real roots",         COL_BLACK);
-    printLine("D=0: 1 repeated root",      COL_BLACK);
-    printLine("D<0: complex roots",        COL_BLACK);
-    printLine("Vertex x = -b/2a",          COL_BLACK);
+    printLine("D>0: 2 real roots",          COL_BLACK);
+    printLine("D=0: 1 repeated root",       COL_BLACK);
+    printLine("D<0: complex roots",         COL_BLACK);
+    printLine("Vertex x = -b/2a",           COL_BLACK);
     waitContinue();
 
     startScreen("ALGEBRA FORMULAS 2", "[ENTER] Done");
     printSubheader("Special Factors");
-    printLine("a^2-b^2=(a+b)(a-b)",        COL_BLACK);
-    printLine("a^3-b^3=",                   COL_BLACK);
-    printLine(" (a-b)(a^2+ab+b^2)",         COL_BLACK);
-    printLine("a^3+b^3=",                   COL_BLACK);
-    printLine(" (a+b)(a^2-ab+b^2)",         COL_BLACK);
-    printLine("(a+b)^2=a^2+2ab+b^2",       COL_BLACK);
-    printLine("(a-b)^2=a^2-2ab+b^2",       COL_BLACK);
+    printLine("a^2-b^2=(a+b)(a-b)",         COL_BLACK);
+    printLine("a^3-b^3=",                    COL_BLACK);
+    printLine(" (a-b)(a^2+ab+b^2)",          COL_BLACK);
+    printLine("a^3+b^3=",                    COL_BLACK);
+    printLine(" (a+b)(a^2-ab+b^2)",          COL_BLACK);
+    printLine("(a+b)^2=a^2+2ab+b^2",        COL_BLACK);
+    printLine("(a-b)^2=a^2-2ab+b^2",        COL_BLACK);
     waitContinue();
 }
 
@@ -990,17 +994,17 @@ static void showRefInequalityRules(void)
 {
     startScreen("INEQUALITY RULES", "[ENTER] Done");
     printSubheader("Key Rules");
-    printLine("Add/subtract both sides",   COL_BLACK);
-    printLine("Mul/div by +: same dir",    COL_BLACK);
-    printLine("Mul/div by -: FLIP dir",    COL_RED);
+    printLine("Add/subtract both sides",    COL_BLACK);
+    printLine("Mul/div by +: same dir",     COL_BLACK);
+    printLine("Mul/div by -: FLIP dir",     COL_RED);
     printDivider();
     printSubheader("Absolute Value");
-    printLine("|x| < a =>",                COL_BLACK);
-    printLine("  -a < x < a",              COL_GREEN);
-    printLine("|x| > a =>",                COL_BLACK);
-    printLine("  x<-a  or  x>a",           COL_GREEN);
-    printLine("|x| = a =>",                COL_BLACK);
-    printLine("  x=a  or  x=-a",           COL_GREEN);
+    printLine("|x| < a =>",                 COL_BLACK);
+    printLine("  -a < x < a",               COL_GREEN);
+    printLine("|x| > a =>",                 COL_BLACK);
+    printLine("  x<-a  or  x>a",            COL_GREEN);
+    printLine("|x| = a =>",                 COL_BLACK);
+    printLine("  x=a  or  x=-a",            COL_GREEN);
     waitContinue();
 }
 
@@ -1008,30 +1012,30 @@ static void showRefGeometry(void)
 {
     startScreen("GEOMETRY FORMULAS", "[ENTER] Next");
     printSubheader("Circles & Spheres");
-    printLine("Circle: A=pi*r^2",          COL_BLACK);
-    printLine("        C=2*pi*r",          COL_BLACK);
-    printLine("Sphere: V=(4/3)pi*r^3",     COL_BLACK);
-    printLine("        SA=4*pi*r^2",       COL_BLACK);
+    printLine("Circle: A=pi*r^2",           COL_BLACK);
+    printLine("        C=2*pi*r",           COL_BLACK);
+    printLine("Sphere: V=(4/3)pi*r^3",      COL_BLACK);
+    printLine("        SA=4*pi*r^2",        COL_BLACK);
     printDivider();
     printSubheader("Prisms & Cones");
-    printLine("Cylinder: V=pi*r^2*h",      COL_BLACK);
-    printLine("Cone: V=(1/3)pi*r^2*h",     COL_BLACK);
-    printLine("Rect: A=LW   P=2L+2W",      COL_BLACK);
-    printLine("Trap: A=0.5h(b1+b2)",       COL_BLACK);
+    printLine("Cylinder: V=pi*r^2*h",       COL_BLACK);
+    printLine("Cone: V=(1/3)pi*r^2*h",      COL_BLACK);
+    printLine("Rect: A=LW   P=2L+2W",       COL_BLACK);
+    printLine("Trap: A=0.5h(b1+b2)",        COL_BLACK);
     waitContinue();
 
     startScreen("GEOMETRY 2", "[ENTER] Done");
     printSubheader("Triangles");
-    printLine("A=0.5*b*h",                 COL_BLACK);
-    printLine("A=0.5ab*sin(C)",            COL_BLACK);
-    printLine("Heron: s=(a+b+c)/2",        COL_BLACK);
-    printLine(" A=sqrt(s(s-a)(s-b)(s-c))", COL_BLACK);
+    printLine("A=0.5*b*h",                  COL_BLACK);
+    printLine("A=0.5ab*sin(C)",             COL_BLACK);
+    printLine("Heron: s=(a+b+c)/2",         COL_BLACK);
+    printLine(" A=sqrt(s(s-a)(s-b)(s-c))",  COL_BLACK);
     printDivider();
     printSubheader("Coord Geometry");
-    printLine("d=sqrt((x2-x1)^2",          COL_BLACK);
-    printLine("       +(y2-y1)^2)",         COL_BLACK);
-    printLine("m=(y2-y1)/(x2-x1)",         COL_BLACK);
-    printLine("||: m1=m2  _|_: m1*m2=-1",  COL_BLACK);
+    printLine("d=sqrt((x2-x1)^2",           COL_BLACK);
+    printLine("       +(y2-y1)^2)",          COL_BLACK);
+    printLine("m=(y2-y1)/(x2-x1)",          COL_BLACK);
+    printLine("||: m1=m2  _|_: m1*m2=-1",   COL_BLACK);
     waitContinue();
 }
 
@@ -1135,7 +1139,7 @@ int main(void)
     runMainMenu();
 
     /* Goodbye screen */
-    startScreen("UltimateMathSolver", "");
+    startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
     printLine("MathSolverCE  v2.1", COL_NAVY);

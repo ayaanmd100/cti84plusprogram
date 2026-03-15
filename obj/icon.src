@@ -5,5 +5,5 @@
 
 	public ___description
 ___description:
-	db	"ti::real C++ demo", 0
+	db	"C", 0
 ___prgm_init:

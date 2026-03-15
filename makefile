@@ -2,7 +2,7 @@
 # Program Options
 # ----------------------------
 
-NAME = UltimateMathSolver
+NAME = MSOLVE
 ICON = icon.png
 DESCRIPTION  = "C"
 COMPRESSED = YES
