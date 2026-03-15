@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.1
+ * MathSolverCE  v2.2
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -1142,7 +1142,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.1", COL_NAVY);
+    printLine("MathSolverCE  v2.2", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
