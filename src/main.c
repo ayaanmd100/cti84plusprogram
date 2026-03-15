@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.0
+ * MathSolverCE  v2.1
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -632,7 +632,7 @@ static void solveThreeWayInequality(void)
 
     formatNumber(lo, sizeof(lo), finalLo);
     formatNumber(hi, sizeof(hi), finalHi);
-    const char *loOpStr = loStrict ? ">"  : ">=";
+    const char *loOpStr = loStrict ? "<"  : "<="; // Changed from > / >=
     const char *hiOpStr = hiStrict ? "<"  : "<=";
     char        loBrk   = loStrict ? '('  : '[';
     char        hiBrk   = hiStrict ? ')'  : ']';
@@ -1135,10 +1135,10 @@ int main(void)
     runMainMenu();
 
     /* Goodbye screen */
-    startScreen("MATH SOLVER CE", "");
+    startScreen("UltimateMathSolver", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.0", COL_NAVY);
+    printLine("MathSolverCE  v2.1", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();

@@ -2,13 +2,16 @@
 # Program Options
 # ----------------------------
 
-NAME = CPPREAL
+NAME = UltimateMathSolver
 ICON = icon.png
-DESCRIPTION  = "ti::real C++ demo"
-COMPRESSED = NO
-
+DESCRIPTION  = "C"
+COMPRESSED = YES
+ARCHIVED = YES
 CFLAGS = -Wall -Wextra -Oz
 CXXFLAGS = -Wall -Wextra -Oz
+COMPRESSED_MODE = zx0
+LTO = YES
+PREFER_OS_CRT = YES
 
 # ----------------------------
 
