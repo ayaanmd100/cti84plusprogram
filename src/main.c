@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.39
+ * MathSolverCE  v2.40
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -1345,6 +1345,34 @@ static void solveLCM(void)
     waitContinue();
 }
 
+/* Computes log10 of nPr using lgamma.
+   nPr = n! / (n-r)!  =>  log10(nPr) = (lgamma(n+1) - lgamma(n-r+1)) / ln10 */
+static double log10Permutation(int n, int r)
+{
+    if (r == 0) return 0.0;
+    return (lgamma((double)(n + 1)) - lgamma((double)(n - r + 1))) / log(10.0);
+}
+
+/* Computes log10 of nCr using lgamma.
+   nCr = n! / (r!(n-r)!)                                                      */
+static double log10Combination(int n, int r)
+{
+    if (r == 0 || r == n) return 0.0;
+    if (r > n - r) r = n - r;
+    return (lgamma((double)(n + 1))
+          - lgamma((double)(r + 1))
+          - lgamma((double)(n - r + 1))) / log(10.0);
+}
+
+/* Formats a log10 value as  m.mmmm x 10^e  into outBuf */
+static void formatScientific(char *outBuf, size_t bufSize, double log10val)
+{
+    int    exponent = (int)floor(log10val);
+    double mantissa = pow(10.0, log10val - (double)exponent);
+    if (mantissa < 1.0 - MATH_EPS) { mantissa *= 10.0; exponent--; }
+    snprintf(outBuf, bufSize, "%.4fx10^%d", mantissa, exponent);
+}
+
 static void solvePermComb(void)
 {
     RESET_CANCEL();
@@ -1375,16 +1403,21 @@ static void solvePermComb(void)
     unsigned long long ncr = combination(n, r);
 
     char lineBuf[52];
+    char sciBuf[32];
 
     if (npr == 0 && r != 0) {
-        printLine("(order) nPr = overflow", COL_RED);
+        formatScientific(sciBuf, sizeof(sciBuf), log10Permutation(n, r));
+        snprintf(lineBuf, sizeof(lineBuf), "(order) nPr~%s", sciBuf);
+        printLine(lineBuf, COL_ORANGE);
     } else {
         snprintf(lineBuf, sizeof(lineBuf), "(order) nPr = %llu", npr);
         printLine(lineBuf, COL_GREEN);
     }
 
     if (ncr == 0 && r != 0) {
-        printLine("(no order) nCr = overflow", COL_RED);
+        formatScientific(sciBuf, sizeof(sciBuf), log10Combination(n, r));
+        snprintf(lineBuf, sizeof(lineBuf), "(no order) nCr~%s", sciBuf);
+        printLine(lineBuf, COL_ORANGE);
     } else {
         snprintf(lineBuf, sizeof(lineBuf), "(no order) nCr = %llu", ncr);
         printLine(lineBuf, COL_GREEN);
@@ -1450,9 +1483,9 @@ static void solveBinomialCoeff(void)
     int r = n - p;   /* which term of the expansion */
 
     /* log10(C(n,r)) via log sum — avoids computing the huge integer */
-    double logCnr = 0.0;
-    for (int i = 1; i <= r; i++)
-        logCnr += log10((double)(n - r + i)) - log10((double)i);
+    double logCnr = (lgamma((double)(n + 1))
+               - lgamma((double)(r + 1))
+               - lgamma((double)(n - r + 1))) / log(10.0);
 
     /* log10(|a|^p) and log10(|b|^r) */
     double logA = (fabs(a) < MATH_EPS) ? 0.0 : (double)p * log10(fabs(a));
@@ -1719,7 +1752,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.39  ", COL_NAVY);
+    printLine("MathSolverCE  v2.40  ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
