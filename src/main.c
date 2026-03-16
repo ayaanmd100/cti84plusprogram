@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.40
+ * MathSolverCE  v2.41
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -1543,6 +1543,123 @@ static void solveBinomialCoeff(void)
 
     waitContinue();
 }
+
+static void solvePascalTriangle(void)
+{
+    RESET_CANCEL();
+    startScreen("PASCAL'S TRIANGLE", "[CLEAR] Back");
+    printSubheader("Enter row number:");
+    printBlank();
+
+    double nVal = inputNumber("Row N = "); CHECK_CANCEL;
+    int n = (int)round(nVal);
+
+    if (n < 0) {
+        printDivider();
+        printLine("N must be >= 0", COL_RED);
+        waitContinue();
+        return;
+    }
+    if (n > 60) {
+        printDivider();
+        printLine("Max N = 60", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    if (n <= 10) {
+        /* ── Visual mode: show full triangle rows 0..N centred ── */
+        startScreen("PASCAL'S TRIANGLE", "[ENTER] Done");
+
+        for (int row = 0; row <= n; row++) {
+            if (gCurrentLine >= MAX_LINES) break;
+
+            /* Compute this row iteratively from the previous value */
+            unsigned long long vals[11];
+            vals[0] = 1;
+            for (int k = 1; k <= row; k++)
+                vals[k] = vals[k-1]
+                        * (unsigned long long)(row - k + 1)
+                        / (unsigned long long)k;
+
+            /* Build the row string */
+            char rowStr[52];
+            rowStr[0] = '\0';
+            for (int k = 0; k <= row; k++) {
+                char numStr[10];
+                snprintf(numStr, sizeof(numStr), "%llu", vals[k]);
+                if (k > 0)
+                    strncat(rowStr, " ", sizeof(rowStr) - strlen(rowStr) - 1);
+                strncat(rowStr, numStr, sizeof(rowStr) - strlen(rowStr) - 1);
+            }
+
+            /* Centre on screen using pixel width */
+            int strW = gfx_GetStringWidth(rowStr);
+            int x    = (SCR_W - strW) / 2;
+            if (x < LMARGIN) x = LMARGIN;
+            int y = BODY_TOP + gCurrentLine * LINE_H;
+            gfx_SetTextFGColor(COL_BLACK);
+            gfx_SetTextBGColor(COL_WHITE);
+            gfx_PrintStringXY(rowStr, x, y);
+            gCurrentLine++;
+        }
+        waitContinue();
+
+    } else {
+        /*
+         * ── List mode: show k = 0 .. floor(N/2) with values, paged ──
+         *
+         * Pascal's triangle is symmetric: C(N,k) = C(N,N-k), so
+         * showing the first half is enough. The symmetry note is
+         * printed on the last page.
+         *
+         * For N <= 60 all C(N,k) values fit in uint64, so no
+         * scientific notation is needed, but the overflow guard
+         * is kept as a safety net.
+         */
+        int halfCount    = n / 2 + 1;          /* k = 0..floor(N/2) */
+        int linesPerPage = MAX_LINES - 2;       /* 2 lines for header */
+        int pages        = (halfCount + linesPerPage - 1) / linesPerPage;
+
+        for (int page = 0; page < pages; page++) {
+            char titleBuf[32];
+            snprintf(titleBuf, sizeof(titleBuf),
+                     "ROW %d  (%d/%d)", n, page + 1, pages);
+            startScreen(titleBuf, "[ENTER] Next / Done");
+            printSubheader("k      C(N,k)");
+
+            int start = page * linesPerPage;
+            int end   = start + linesPerPage;
+            if (end > halfCount) end = halfCount;
+
+            for (int k = start; k < end; k++) {
+                char lineBuf[52];
+                unsigned long long val = combination(n, k);
+
+                /* Overflow fallback — won't trigger for N<=60 */
+                if (val == 0 && k > 0 && k < n) {
+                    char sciBuf[24];
+                    formatScientific(sciBuf, sizeof(sciBuf),
+                                     log10Combination(n, k));
+                    snprintf(lineBuf, sizeof(lineBuf),
+                             "%-4d  ~%s", k, sciBuf);
+                    printLine(lineBuf, COL_ORANGE);
+                } else {
+                    snprintf(lineBuf, sizeof(lineBuf),
+                             "%-4d  %llu", k, val);
+                    printLine(lineBuf, COL_GREEN);
+                }
+            }
+
+            /* Symmetry reminder on last page */
+            if (page == pages - 1) {
+                printBlank();
+                printLine("C(N,k) = C(N, N-k)", COL_ORANGE);
+            }
+            waitContinue();
+        }
+    }
+}
 /* ═══════════════════════════════════════════════
    SECTION 3 — FORMULA REFERENCE
    ═══════════════════════════════════════════════ */
@@ -1694,18 +1811,20 @@ static void menuNumberTheory(void)
         "GCD / HCF",
         "LCM",
         "Perm. & Combination",
-        "Binomial Theory - Coeff",
+        "Binomial Theorem - Coeff",
+        "Binomial Theorem - Pascal's Triangle",
         "Back"
     };
     int sel;
-    while ((sel = showMenu("NUMBER THEORY", options, 6)) >= 0) {
+    while ((sel = showMenu("NUMBER THEORY", options, 7)) >= 0) {
         switch (sel) {
             case 0: solveFactorize(); break;
             case 1: solveGCD();       break;
             case 2: solveLCM();       break;
             case 3: solvePermComb();  break;
             case 4: solveBinomialCoeff(); break;
-            case 5: return;
+            case 5: solvePascalTriangle();break;
+            case 6: return;
         }
     }
 }
@@ -1752,7 +1871,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.40  ", COL_NAVY);
+    printLine("MathSolverCE  v2.41  ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
