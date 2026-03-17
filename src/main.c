@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.42
+ * MathSolverCE  v2.43
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -1858,6 +1858,324 @@ static void solveSystemOfInequalities(void)
     waitContinue();
 }
 
+/*
+ * Number Base Conversion
+ *
+ * Supports bases 2 through 36.
+ * Digits 0-9 are entered as numbers.
+ * For bases > 10, the user enters digit values numerically
+ * separated by spaces — e.g. base-16 number "1A3" is
+ * entered as three digits: 1, 10, 3.
+ *
+ * Two modes:
+ *   1. Convert FROM any base TO base 10
+ *   2. Convert FROM base 10 TO any base
+ */
+
+/* Convert a base-10 value to a digit character: 0-9, A-Z */
+static char digitToChar(int d)
+{
+    if (d < 10) return '0' + d;
+    return 'A' + (d - 10);
+}
+
+static void solveBaseToDecimal(void)
+{
+    RESET_CANCEL();
+    startScreen("BASE -> DECIMAL", "[CLEAR] Back");
+    printSubheader("Convert base N -> base 10");
+    printBlank();
+
+    double baseVal = inputNumber("Source base = "); CHECK_CANCEL;
+    int base = (int)round(baseVal);
+
+    if (base < 2 || base > 36) {
+        printDivider();
+        printLine("Base must be 2 to 36", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    double digitCountVal = inputNumber("# of digits = "); CHECK_CANCEL;
+    int digitCount = (int)round(digitCountVal);
+
+    if (digitCount < 1 || digitCount > 12) {
+        printDivider();
+        printLine("1 to 12 digits only", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    /* Collect each digit on a fresh screen */
+    int digits[12];
+    for (int i = 0; i < digitCount; i++) {
+        char titleBuf[28];
+        snprintf(titleBuf, sizeof(titleBuf),
+                 "DIGIT %d of %d (base %d)", i + 1, digitCount, base);
+        startScreen(titleBuf, "[CLEAR] Back");
+        printSubheader("Enter digit value 0-N");
+        printBlank();
+
+        /* Show digits entered so far */
+        for (int j = 0; j < i; j++) {
+            char prevBuf[20];
+            snprintf(prevBuf, sizeof(prevBuf),
+                     "d%d = %c", j + 1, digitToChar(digits[j]));
+            printLine(prevBuf, COL_GRAY);
+        }
+
+        char prompt[12];
+        snprintf(prompt, sizeof(prompt), "d%d = ", i + 1);
+        double dVal = inputNumber(prompt); CHECK_CANCEL;
+        int d = (int)round(dVal);
+
+        if (d < 0 || d >= base) {
+            printDivider();
+            char errBuf[32];
+            snprintf(errBuf, sizeof(errBuf),
+                     "Digit must be 0 to %d", base - 1);
+            printLine(errBuf, COL_RED);
+            waitContinue();
+            return;
+        }
+        digits[i] = d;
+    }
+
+    /* Convert: most significant digit first */
+    unsigned long long result = 0;
+    bool overflow = false;
+    for (int i = 0; i < digitCount; i++) {
+        if (result > (0xFFFFFFFFFFFFFFFFULL - digits[i]) / (unsigned long long)base) {
+            overflow = true;
+            break;
+        }
+        result = result * (unsigned long long)base + (unsigned long long)digits[i];
+    }
+
+    /* Build the original number string for display */
+    char origBuf[16];
+    origBuf[0] = '\0';
+    for (int i = 0; i < digitCount; i++) {
+        char c[2] = { digitToChar(digits[i]), '\0' };
+        strncat(origBuf, c, sizeof(origBuf) - strlen(origBuf) - 1);
+    }
+
+    startScreen("BASE -> DECIMAL", "[ENTER] Done");
+    printSubheader("Result");
+    printBlank();
+
+    char lineBuf[52];
+    snprintf(lineBuf, sizeof(lineBuf), "(%s) base %d", origBuf, base);
+    printLine(lineBuf, COL_BLACK);
+
+    if (overflow) {
+        printLine("= Overflow (too large)", COL_RED);
+    } else {
+        snprintf(lineBuf, sizeof(lineBuf), "= %llu (base 10)",
+                 result);
+        printLine(lineBuf, COL_GREEN);
+    }
+
+    waitContinue();
+}
+
+static void solveDecimalToBase(void)
+{
+    RESET_CANCEL();
+    startScreen("DECIMAL -> BASE", "[CLEAR] Back");
+    printSubheader("Convert base 10 -> base N");
+    printBlank();
+
+    double numVal  = inputNumber("Number (base 10) = "); CHECK_CANCEL;
+    double baseVal = inputNumber("Target base = ");      CHECK_CANCEL;
+
+    int base = (int)round(baseVal);
+    unsigned long long num = (unsigned long long)fabs(round(numVal));
+    bool negative = (numVal < 0.0);
+
+    printDivider();
+
+    if (base < 2 || base > 36) {
+        printLine("Base must be 2 to 36", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    if (num == 0) {
+        printLine("Result: 0", COL_GREEN);
+        waitContinue();
+        return;
+    }
+
+    /* Repeated division */
+    char resultBuf[52];
+    resultBuf[0] = '\0';
+    char tmp[52];
+    tmp[0] = '\0';
+
+    unsigned long long n = num;
+    while (n > 0) {
+        int rem = (int)(n % (unsigned long long)base);
+        char c[2] = { digitToChar(rem), '\0' };
+        /* Prepend digit */
+        memmove(tmp + 1, tmp, strlen(tmp) + 1);
+        tmp[0] = c[0];
+        n /= (unsigned long long)base;
+    }
+
+    if (negative) {
+        snprintf(resultBuf, sizeof(resultBuf), "-%s", tmp);
+    } else {
+        snprintf(resultBuf, sizeof(resultBuf), "%s", tmp);
+    }
+
+    char lineBuf[52];
+    snprintf(lineBuf, sizeof(lineBuf), "%llu (base 10)", num);
+    printLine(lineBuf, COL_BLACK);
+
+    snprintf(lineBuf, sizeof(lineBuf), "= %s (base %d)",
+             resultBuf, base);
+    printLine(lineBuf, COL_GREEN);
+
+    waitContinue();
+}
+
+static void solveBaseToBase(void)
+{
+    RESET_CANCEL();
+    startScreen("BASE -> BASE", "[CLEAR] Back");
+    printSubheader("Convert base A -> base B");
+    printBlank();
+
+    /*
+     * Strategy: convert source -> decimal -> target.
+     * Reuses the logic from the two functions above
+     * but inline, since we need the intermediate value.
+     */
+
+    double srcBaseVal = inputNumber("Source base = "); CHECK_CANCEL;
+    int srcBase = (int)round(srcBaseVal);
+
+    double digitCountVal = inputNumber("# of digits = "); CHECK_CANCEL;
+    int digitCount = (int)round(digitCountVal);
+
+    if (srcBase < 2 || srcBase > 36) {
+        printDivider();
+        printLine("Base must be 2 to 36", COL_RED);
+        waitContinue();
+        return;
+    }
+    if (digitCount < 1 || digitCount > 12) {
+        printDivider();
+        printLine("1 to 12 digits only", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    int digits[12];
+    for (int i = 0; i < digitCount; i++) {
+        char titleBuf[28];
+        snprintf(titleBuf, sizeof(titleBuf),
+                 "DIGIT %d of %d (base %d)", i + 1, digitCount, srcBase);
+        startScreen(titleBuf, "[CLEAR] Back");
+        printSubheader("Enter digit value 0-N");
+        printBlank();
+
+        for (int j = 0; j < i; j++) {
+            char prevBuf[20];
+            snprintf(prevBuf, sizeof(prevBuf),
+                     "d%d = %c", j + 1, digitToChar(digits[j]));
+            printLine(prevBuf, COL_GRAY);
+        }
+
+        char prompt[12];
+        snprintf(prompt, sizeof(prompt), "d%d = ", i + 1);
+        double dVal = inputNumber(prompt); CHECK_CANCEL;
+        int d = (int)round(dVal);
+
+        if (d < 0 || d >= srcBase) {
+            printDivider();
+            char errBuf[32];
+            snprintf(errBuf, sizeof(errBuf),
+                     "Digit must be 0 to %d", srcBase - 1);
+            printLine(errBuf, COL_RED);
+            waitContinue();
+            return;
+        }
+        digits[i] = d;
+    }
+
+    /* Source -> decimal */
+    unsigned long long decimal = 0;
+    bool overflow = false;
+    for (int i = 0; i < digitCount; i++) {
+        if (decimal > (0xFFFFFFFFFFFFFFFFULL - digits[i])
+                      / (unsigned long long)srcBase) {
+            overflow = true; break;
+        }
+        decimal = decimal * (unsigned long long)srcBase
+                + (unsigned long long)digits[i];
+    }
+
+    startScreen("BASE -> BASE", "[CLEAR] Back");
+    printSubheader("Target base");
+    printBlank();
+
+    double tgtBaseVal = inputNumber("Target base = "); CHECK_CANCEL;
+    int tgtBase = (int)round(tgtBaseVal);
+
+    if (tgtBase < 2 || tgtBase > 36) {
+        printDivider();
+        printLine("Base must be 2 to 36", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    /* Decimal -> target */
+    char tmp[52];
+    tmp[0] = '\0';
+    unsigned long long n = decimal;
+    if (n == 0) {
+        tmp[0] = '0'; tmp[1] = '\0';
+    } else {
+        while (n > 0) {
+            int rem = (int)(n % (unsigned long long)tgtBase);
+            memmove(tmp + 1, tmp, strlen(tmp) + 1);
+            tmp[0] = digitToChar(rem);
+            n /= (unsigned long long)tgtBase;
+        }
+    }
+
+    /* Build original number string */
+    char origBuf[16];
+    origBuf[0] = '\0';
+    for (int i = 0; i < digitCount; i++) {
+        char c[2] = { digitToChar(digits[i]), '\0' };
+        strncat(origBuf, c, sizeof(origBuf) - strlen(origBuf) - 1);
+    }
+
+    printDivider();
+
+    char lineBuf[52];
+    snprintf(lineBuf, sizeof(lineBuf),
+             "(%s) base %d", origBuf, srcBase);
+    printLine(lineBuf, COL_BLACK);
+
+    if (overflow) {
+        printLine("Overflow in conversion", COL_RED);
+    } else {
+        snprintf(lineBuf, sizeof(lineBuf),
+                 "= %llu (base 10)", decimal);
+        printLine(lineBuf, COL_BLACK);
+
+        snprintf(lineBuf, sizeof(lineBuf),
+                 "= %s (base %d)", tmp, tgtBase);
+        printLine(lineBuf, COL_GREEN);
+    }
+
+    waitContinue();
+}
+
 /* ═══════════════════════════════════════════════
    SECTION 3 — FORMULA REFERENCE
    ═══════════════════════════════════════════════ */
@@ -2004,6 +2322,25 @@ static void menuReference(void)
     }
 }
 
+static void menuBaseConversion(void)
+{
+    const char *options[] = {
+        "Base N -> Decimal",
+        "Decimal -> Base N",
+        "Base A -> Base B",
+        "Back"
+    };
+    int sel;
+    while ((sel = showMenu("BASE CONVERSION", options, 4)) >= 0) {
+        switch (sel) {
+            case 0: solveBaseToDecimal(); break;
+            case 1: solveDecimalToBase(); break;
+            case 2: solveBaseToBase();    break;
+            case 3: return;
+        }
+    }
+}
+
 static void menuNumberTheory(void)
 {
     const char *options[] = {
@@ -2013,10 +2350,11 @@ static void menuNumberTheory(void)
         "Perm. & Combination",
         "Binomial Theorem - Coeff",
         "Binomial Theorem - Pascal's Triangle",
+        "Base Conversion",
         "Back"
     };
     int sel;
-    while ((sel = showMenu("NUMBER THEORY", options, 7)) >= 0) {
+    while ((sel = showMenu("NUMBER THEORY", options, 8)) >= 0) {
         switch (sel) {
             case 0: solveFactorize(); break;
             case 1: solveGCD();       break;
@@ -2024,7 +2362,8 @@ static void menuNumberTheory(void)
             case 3: solvePermComb();  break;
             case 4: solveBinomialCoeff(); break;
             case 5: solvePascalTriangle();break;
-            case 6: return;
+            case 6: menuBaseConversion();break;
+            case 7: return;
         }
     }
 }
@@ -2071,7 +2410,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.42  ", COL_NAVY);
+    printLine("MathSolverCE  v2.43  ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
