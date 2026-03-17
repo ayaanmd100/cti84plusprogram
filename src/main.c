@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.41
+ * MathSolverCE  v2.42
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -1660,6 +1660,204 @@ static void solvePascalTriangle(void)
         }
     }
 }
+
+/*
+ * System of Linear Inequalities solver.
+ *
+ * Each inequality is entered as:  Ax + By op C
+ *
+ * Strategy:
+ *   1. Find all intersection points of every pair of boundary lines.
+ *   2. Keep only those that satisfy ALL inequalities (feasible vertices).
+ *   3. Sort vertices by angle around their centroid (convex hull order).
+ *   4. Apply the shoelace formula to compute the area.
+ */
+
+#define MAX_INEQ      8
+#define MAX_VERTICES  64   /* C(8,2) = 28 pairs, plus axis intersections */
+
+typedef struct {
+    double x, y;
+} Point2D;
+
+/* Check whether point p satisfies inequality Ax + By op C */
+static bool satisfiesIneq(double A, double B, double C, int op, Point2D p)
+{
+    double lhs = A * p.x + B * p.y;
+    switch (op) {
+        case 0: return lhs <  C - MATH_EPS;
+        case 1: return lhs <= C + MATH_EPS;
+        case 2: return lhs >  C + MATH_EPS;
+        case 3: return lhs >= C - MATH_EPS;
+        default: return false;
+    }
+}
+
+/* Intersect lines A1x+B1y=C1 and A2x+B2y=C2.
+   Returns true and sets p if lines are not parallel. */
+static bool intersectLines(double A1, double B1, double C1,
+                           double A2, double B2, double C2,
+                           Point2D *p)
+{
+    double det = A1 * B2 - A2 * B1;
+    if (fabs(det) < MATH_EPS) return false;
+    p->x = (C1 * B2 - C2 * B1) / det;
+    p->y = (A1 * C2 - A2 * C1) / det;
+    return true;
+}
+
+/* Sort vertices by angle around centroid — puts them in convex hull order */
+static void sortVerticesByAngle(Point2D *verts, int count)
+{
+    /* Find centroid */
+    double cx = 0.0, cy = 0.0;
+    for (int i = 0; i < count; i++) { cx += verts[i].x; cy += verts[i].y; }
+    cx /= count; cy /= count;
+
+    /* Bubble sort by atan2 angle — count is small so this is fine */
+    for (int i = 0; i < count - 1; i++) {
+        for (int j = 0; j < count - i - 1; j++) {
+            double a1 = atan2(verts[j].y   - cy, verts[j].x   - cx);
+            double a2 = atan2(verts[j+1].y - cy, verts[j+1].x - cx);
+            if (a1 > a2) {
+                Point2D tmp = verts[j];
+                verts[j]    = verts[j+1];
+                verts[j+1]  = tmp;
+            }
+        }
+    }
+}
+
+/* Shoelace formula — vertices must be in convex order */
+static double polygonArea(Point2D *verts, int count)
+{
+    double area = 0.0;
+    for (int i = 0; i < count; i++) {
+        int j = (i + 1) % count;
+        area += verts[i].x * verts[j].y;
+        area -= verts[j].x * verts[i].y;
+    }
+    return fabs(area) * 0.5;
+}
+
+static void solveSystemOfInequalities(void)
+{
+    RESET_CANCEL();
+    startScreen("SYSTEM OF INEQ.", "[CLEAR] Back");
+    printSubheader("Each: Ax + By op C");
+    printBlank();
+
+    double nVal = inputNumber("# of inequalities: "); CHECK_CANCEL;
+    int n = (int)round(nVal);
+
+    if (n < 2 || n > MAX_INEQ) {
+        printDivider();
+        printLine("Enter 2 to 8", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    double A[MAX_INEQ], B[MAX_INEQ], C[MAX_INEQ];
+    int    op[MAX_INEQ];
+    char   prompt[12];
+
+       for (int i = 0; i < n; i++) {
+        /* Fresh screen for each inequality so inputs never overflow */
+        char titleBuf[28];
+        snprintf(titleBuf, sizeof(titleBuf),
+                 "INEQ. %d of %d", i + 1, n);
+        startScreen(titleBuf, "[CLEAR] Back");
+        printSubheader("Ax + By  op  C");
+        printBlank();
+
+        snprintf(prompt, sizeof(prompt), "A%d = ", i + 1);
+        A[i] = inputNumber(prompt); CHECK_CANCEL;
+
+        snprintf(prompt, sizeof(prompt), "B%d = ", i + 1);
+        B[i] = inputNumber(prompt); CHECK_CANCEL;
+
+        snprintf(prompt, sizeof(prompt), "C%d = ", i + 1);
+        C[i] = inputNumber(prompt); CHECK_CANCEL;
+
+        snprintf(prompt, sizeof(prompt), "op%d:", i + 1);
+        op[i] = inputOperator(prompt); CHECK_CANCEL;
+    }
+
+    /* ── Find all candidate vertices ── */
+    Point2D verts[MAX_VERTICES];
+    int     vertCount = 0;
+
+    for (int i = 0; i < n && vertCount < MAX_VERTICES; i++) {
+        for (int j = i + 1; j < n && vertCount < MAX_VERTICES; j++) {
+            Point2D p;
+            if (!intersectLines(A[i], B[i], C[i],
+                                A[j], B[j], C[j], &p)) continue;
+
+            /* Reject if coordinates are unreasonably large */
+            if (fabs(p.x) > 1e6 || fabs(p.y) > 1e6) continue;
+
+            /* Check this point satisfies every inequality */
+            bool feasible = true;
+            for (int k = 0; k < n; k++) {
+                if (!satisfiesIneq(A[k], B[k], C[k], op[k], p)) {
+                    feasible = false;
+                    break;
+                }
+            }
+            if (!feasible) continue;
+
+            /* Deduplicate — skip if already in list */
+            bool duplicate = false;
+            for (int d = 0; d < vertCount; d++) {
+                if (fabs(verts[d].x - p.x) < MATH_EPS &&
+                    fabs(verts[d].y - p.y) < MATH_EPS) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (!duplicate) verts[vertCount++] = p;
+        }
+    }
+
+    printDivider();
+
+    if (vertCount < 3) {
+        printLine("No bounded region found", COL_RED);
+        printLine("Check inequalities", COL_BLACK);
+        waitContinue();
+        return;
+    }
+
+    sortVerticesByAngle(verts, vertCount);
+    double area = polygonArea(verts, vertCount);
+
+    /* ── Display vertices ── */
+    char lineBuf[52];
+    snprintf(lineBuf, sizeof(lineBuf), "Vertices (%d):", vertCount);
+    printLine(lineBuf, COL_ORANGE);
+
+    for (int i = 0; i < vertCount && gCurrentLine < MAX_LINES - 2; i++) {
+        char xBuf[12], yBuf[12];
+        formatNumber(xBuf, sizeof(xBuf), verts[i].x);
+        formatNumber(yBuf, sizeof(yBuf), verts[i].y);
+        snprintf(lineBuf, sizeof(lineBuf), "  (%s, %s)", xBuf, yBuf);
+        printLine(lineBuf, COL_BLACK);
+    }
+
+    if (vertCount > MAX_LINES - 3) {
+        printLine("  (more — see above)", COL_GRAY);
+    }
+
+    /* ── Display area ── */
+    printDivider();
+    char areaBuf[20];
+    formatNumber(areaBuf, sizeof(areaBuf), area);
+    snprintf(lineBuf, sizeof(lineBuf), "Area = %s sq units", areaBuf);
+    printLine(lineBuf, COL_GREEN);
+
+    waitContinue();
+}
+
 /* ═══════════════════════════════════════════════
    SECTION 3 — FORMULA REFERENCE
    ═══════════════════════════════════════════════ */
@@ -1752,16 +1950,18 @@ static void menuEquationsAndInequalities(void)
         "Quadratic Equation",
         "Linear Inequality",
         "Three-Way Inequality",
+        "System of Inequalties",
         "Back"
     };
     int sel;
-    while ((sel = showMenu("EQUATIONS & INEQ.", options, 5)) >= 0) {
+    while ((sel = showMenu("EQUATIONS & INEQ.", options, 6)) >= 0) {
         switch (sel) {
             case 0: solveLinearEquation();     break;
             case 1: solveQuadraticEquation();  break;
             case 2: solveLinearInequality();   break;
             case 3: solveThreeWayInequality(); break;
-            case 4: return;
+            case 4: solveSystemOfInequalities(); break;
+            case 5: return;
         }
     }
 }
@@ -1871,7 +2071,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.41  ", COL_NAVY);
+    printLine("MathSolverCE  v2.42  ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
