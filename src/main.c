@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.44
+ * MathSolverCE  v2.45
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -2357,6 +2357,112 @@ static void solveFindTheBase(void)
     waitContinue();
 }
 
+/*
+ * z|Ax+B| = w|Cx+D|
+ *
+ * Splits into two linear cases:
+ *   Case 1:  z(Ax+B) =  w(Cx+D)  =>  (zA-wC)x = wD-zB
+ *   Case 2:  z(Ax+B) = -w(Cx+D)  =>  (zA+wC)x = -wD-zB
+ *
+ * Each case is a linear equation — solved directly.
+ * Solutions are validated by substituting back into
+ * the original equation to reject extraneous roots.
+ */
+static void solveAbsEqAbs(void)
+{
+    RESET_CANCEL();
+    startScreen("z|Ax+B| = w|Cx+D|", "[CLEAR] Back");
+    printSubheader("Enter z, A, B, w, C, D:");
+    printBlank();
+
+    double z = inputNumber("z = "); CHECK_CANCEL;
+    double A = inputNumber("A = "); CHECK_CANCEL;
+    double B = inputNumber("B = "); CHECK_CANCEL;
+    double w = inputNumber("w = "); CHECK_CANCEL;
+    double C = inputNumber("C = "); CHECK_CANCEL;
+    double D = inputNumber("D = "); CHECK_CANCEL;
+
+    printDivider();
+
+    /* Validate: z and w must be non-zero for a meaningful equation */
+    if (fabs(z) < MATH_EPS || fabs(w) < MATH_EPS) {
+        printLine("z and w cannot be 0", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    char v1[20], v2[20], lineBuf[52];
+    bool foundAny = false;
+
+    /* ── Case 1: z(Ax+B) = w(Cx+D)
+     *   zAx + zB = wCx + wD
+     *   (zA - wC)x = wD - zB                        */
+    double coeff1 = z * A - w * C;
+    double rhs1   = w * D - z * B;
+
+    if (fabs(coeff1) < MATH_EPS) {
+        /* Degenerate: 0*x = rhs1 */
+        if (fabs(rhs1) < MATH_EPS) {
+            printLine("Case 1: All Reals", COL_GREEN);
+            foundAny = true;
+        }
+        /* else: no solution from case 1, silently skip */
+    } else {
+        double x1 = rhs1 / coeff1;
+
+        /* Validate by substituting back */
+        double lhs = z * fabs(A * x1 + B);
+        double rhs = w * fabs(C * x1 + D);
+
+        if (fabs(lhs - rhs) < MATH_EPS * (1.0 + fabs(lhs))) {
+            formatNumber(v1, sizeof(v1), x1);
+            snprintf(lineBuf, sizeof(lineBuf), "x = %s", v1);
+            printLine(lineBuf, COL_GREEN);
+            foundAny = true;
+        }
+    }
+
+    /* ── Case 2: z(Ax+B) = -w(Cx+D)
+     *   zAx + zB = -wCx - wD
+     *   (zA + wC)x = -wD - zB                       */
+    double coeff2 = z * A + w * C;
+    double rhs2   = -w * D - z * B;
+
+    if (fabs(coeff2) < MATH_EPS) {
+        if (fabs(rhs2) < MATH_EPS) {
+            printLine("Case 2: All Reals", COL_GREEN);
+            foundAny = true;
+        }
+    } else {
+        double x2 = rhs2 / coeff2;
+
+        /* Validate by substituting back */
+        double lhs = z * fabs(A * x2 + B);
+        double rhs = w * fabs(C * x2 + D);
+
+        if (fabs(lhs - rhs) < MATH_EPS * (1.0 + fabs(lhs))) {
+            /* Only print if different from case 1 solution */
+            bool isDuplicate = false;
+            if (fabs(coeff1) > MATH_EPS) {
+                double x1 = rhs1 / coeff1;
+                if (fabs(x2 - x1) < MATH_EPS) isDuplicate = true;
+            }
+            if (!isDuplicate) {
+                formatNumber(v2, sizeof(v2), x2);
+                snprintf(lineBuf, sizeof(lineBuf), "x = %s", v2);
+                printLine(lineBuf, COL_GREEN);
+                foundAny = true;
+            }
+        }
+    }
+
+    if (!foundAny) {
+        printLine("No Solution", COL_RED);
+    }
+
+    waitContinue();
+}
+
 /* ═══════════════════════════════════════════════
    SECTION 3 — FORMULA REFERENCE
    ═══════════════════════════════════════════════ */
@@ -2471,15 +2577,17 @@ static void menuAbsoluteValue(void)
         "|Ax+B| = C",
         "|Ax+B| op C",
         "||Ax+B|-C| op D",
+        "z|Ax+B| = w|Cx+D|",
         "Back"
     };
     int sel;
-    while ((sel = showMenu("ABSOLUTE VALUE", options, 4)) >= 0) {
+    while ((sel = showMenu("ABSOLUTE VALUE", options, 5)) >= 0) {
         switch (sel) {
             case 0: solveAbsEq();         break;
             case 1: solveAbsIneq();       break;
             case 2: solveNestedAbsIneq(); break;
-            case 3: return;
+            case 3: solveAbsEqAbs(); break;
+            case 4: return;
         }
     }
 }
@@ -2593,7 +2701,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.44  ", COL_NAVY);
+    printLine("MathSolverCE  v2.45  ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
