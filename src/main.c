@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.43
+ * MathSolverCE  v2.44
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -2176,6 +2176,187 @@ static void solveBaseToBase(void)
     waitContinue();
 }
 
+/*
+ * Find-the-Base solver.
+ *
+ * Given:
+ *   - Number A represented in base x  (digits entered by user)
+ *   - Number B represented in base y  (digits entered by user)
+ *   - x - y = diff  (user enters the difference)
+ *
+ * Strategy:
+ *   Let y be the smaller base. Then x = y + diff.
+ *   For each candidate y starting from 2, evaluate:
+ *     polyA(x) == polyB(y)
+ *   Stop at the first match. Also enforce:
+ *     y  > max digit in B
+ *     x  > max digit in A
+ */
+
+/* Evaluate a number given its digits[] (most significant first)
+   in a given base. Returns 0 on overflow. */
+static unsigned long long evalInBase(int *digits, int count, int base)
+{
+    unsigned long long val = 0;
+    for (int i = 0; i < count; i++) {
+        if (val > (0xFFFFFFFFFFFFFFFFULL - digits[i])
+                  / (unsigned long long)base)
+            return 0;   /* overflow sentinel */
+        val = val * (unsigned long long)base
+            + (unsigned long long)digits[i];
+    }
+    return val;
+}
+
+static void solveFindTheBase(void)
+{
+    RESET_CANCEL();
+    startScreen("FIND THE BASE", "[CLEAR] Back");
+    printSubheader("Same number, two bases");
+    printBlank();
+
+    double diffVal = inputNumber("Base difference (x-y) = ");
+    CHECK_CANCEL;
+    int diff = (int)round(diffVal);
+    if (diff < 1) {
+        printDivider();
+        printLine("Difference must be >= 1", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    /* Enter digits of number in larger base (base x) */
+    double countAVal = inputNumber("# digits in larger base = ");
+    CHECK_CANCEL;
+    int countA = (int)round(countAVal);
+    if (countA < 1 || countA > 10) {
+        printDivider();
+        printLine("1 to 10 digits only", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    int digitsA[10];
+    int maxDigitA = 0;
+    for (int i = 0; i < countA; i++) {
+        char titleBuf[32];
+        snprintf(titleBuf, sizeof(titleBuf),
+                 "LARGER BASE: digit %d of %d", i + 1, countA);
+        startScreen(titleBuf, "[CLEAR] Back");
+        printSubheader("Most significant first");
+        printBlank();
+
+        for (int j = 0; j < i; j++) {
+            char prev[20];
+            snprintf(prev, sizeof(prev), "d%d = %d", j + 1, digitsA[j]);
+            printLine(prev, COL_GRAY);
+        }
+
+        char prompt[10];
+        snprintf(prompt, sizeof(prompt), "d%d = ", i + 1);
+        double dv = inputNumber(prompt); CHECK_CANCEL;
+        digitsA[i] = (int)round(dv);
+        if (digitsA[i] < 0) {
+            printDivider();
+            printLine("Digit must be >= 0", COL_RED);
+            waitContinue();
+            return;
+        }
+        if (digitsA[i] > maxDigitA) maxDigitA = digitsA[i];
+    }
+
+    /* Enter digits of number in smaller base (base y) */
+    double countBVal = inputNumber("# digits in smaller base = ");
+    CHECK_CANCEL;
+    int countB = (int)round(countBVal);
+    if (countB < 1 || countB > 10) {
+        printDivider();
+        printLine("1 to 10 digits only", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    int digitsB[10];
+    int maxDigitB = 0;
+    for (int i = 0; i < countB; i++) {
+        char titleBuf[32];
+        snprintf(titleBuf, sizeof(titleBuf),
+                 "SMALLER BASE: digit %d of %d", i + 1, countB);
+        startScreen(titleBuf, "[CLEAR] Back");
+        printSubheader("Most significant first");
+        printBlank();
+
+        for (int j = 0; j < i; j++) {
+            char prev[20];
+            snprintf(prev, sizeof(prev), "d%d = %d", j + 1, digitsB[j]);
+            printLine(prev, COL_GRAY);
+        }
+
+        char prompt[10];
+        snprintf(prompt, sizeof(prompt), "d%d = ", i + 1);
+        double dv = inputNumber(prompt); CHECK_CANCEL;
+        digitsB[i] = (int)round(dv);
+        if (digitsB[i] < 0) {
+            printDivider();
+            printLine("Digit must be >= 0", COL_RED);
+            waitContinue();
+            return;
+        }
+        if (digitsB[i] > maxDigitB) maxDigitB = digitsB[i];
+    }
+
+    /* Search for y starting from the minimum valid base */
+    int minY = maxDigitB + 1;          /* y must be > every digit in B */
+    if (minY < 2) minY = 2;
+
+    bool found = false;
+    char lineBuf[52];
+
+    startScreen("FIND THE BASE", "[ENTER] Done");
+    printSubheader("Result");
+    printBlank();
+
+    for (int y = minY; y <= 1000; y++) {
+        int x = y + diff;
+
+        /* x must also be valid for digits in A */
+        if (x <= maxDigitA) continue;
+
+        unsigned long long valA = evalInBase(digitsA, countA, x);
+        unsigned long long valB = evalInBase(digitsB, countB, y);
+
+        /* Skip overflow sentinels */
+        if (valA == 0 && countA > 1) continue;
+        if (valB == 0 && countB > 1) continue;
+
+        if (valA == valB) {
+            snprintf(lineBuf, sizeof(lineBuf),
+                     "Larger base x = %d", x);
+            printLine(lineBuf, COL_BLACK);
+
+            snprintf(lineBuf, sizeof(lineBuf),
+                     "Smaller base y = %d", y);
+            printLine(lineBuf, COL_BLACK);
+
+            printDivider();
+
+            snprintf(lineBuf, sizeof(lineBuf),
+                     "Value (base 10) = %llu", valA);
+            printLine(lineBuf, COL_GREEN);
+
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) {
+        printLine("No solution found", COL_RED);
+        printLine("(checked y = 2..1000)", COL_BLACK);
+    }
+
+    waitContinue();
+}
+
 /* ═══════════════════════════════════════════════
    SECTION 3 — FORMULA REFERENCE
    ═══════════════════════════════════════════════ */
@@ -2328,15 +2509,17 @@ static void menuBaseConversion(void)
         "Base N -> Decimal",
         "Decimal -> Base N",
         "Base A -> Base B",
+        "Find the Base",
         "Back"
     };
     int sel;
-    while ((sel = showMenu("BASE CONVERSION", options, 4)) >= 0) {
+    while ((sel = showMenu("BASE CONVERSION", options, 5)) >= 0) {
         switch (sel) {
             case 0: solveBaseToDecimal(); break;
             case 1: solveDecimalToBase(); break;
             case 2: solveBaseToBase();    break;
-            case 3: return;
+            case 3: solveFindTheBase(); break;
+            case 4: return;
         }
     }
 }
@@ -2410,7 +2593,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.43  ", COL_NAVY);
+    printLine("MathSolverCE  v2.44  ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
