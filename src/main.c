@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.45
+ * MathSolverCE  v2.5
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -2464,6 +2464,1107 @@ static void solveAbsEqAbs(void)
 }
 
 /* ═══════════════════════════════════════════════
+   THEORY OF EQUATIONS
+   ═══════════════════════════════════════════════ */
+
+/*
+ * Evaluate a polynomial at x=val.
+ * coeffs[0] = leading (degree n), coeffs[n] = constant.
+ * Uses Horner's method.
+ */
+static double evalPoly(double *coeffs, int degree, double val)
+{
+    double result = 0.0;
+    for (int i = 0; i <= degree; i++)
+        result = result * val + coeffs[i];
+    return result;
+}
+
+/* ─────────────────────────────────────────────
+   1. REMAINDER & FACTOR THEOREM
+   ─────────────────────────────────────────────
+   Two modes:
+   A) Find remainder: enter full polynomial, enter r,
+      output P(r) = remainder when divided by (x-r).
+   B) Find k: one coefficient is unknown k.
+      Enter known coefficients (mark the unknown as 0),
+      enter its position, enter r and desired remainder,
+      solve for k.
+   ───────────────────────────────────────────── */
+static void solveRemainderFactor(void)
+{
+    RESET_CANCEL();
+    startScreen("REMAINDER/FACTOR THM", "[CLEAR] Back");
+    printSubheader("P(x) div by (x-r)");
+    printBlank();
+
+    double degVal = inputNumber("Degree of P(x) = "); CHECK_CANCEL;
+    int deg = (int)round(degVal);
+
+    if (deg < 1 || deg > 5) {
+        printDivider();
+        printLine("Degree must be 1 to 5", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    /* Ask if there is an unknown k in the polynomial */
+    printLine("Is there an unknown k?", COL_NAVY);
+    printLine("1: Yes    2: No", COL_ORANGE);
+    blit();
+    uint8_t choice;
+    do { choice = waitForKey(); } while (choice != sk_1 && choice != sk_2
+                                         && choice != sk_Clear);
+    if (choice == sk_Clear) { gUserCancelled = true; return; }
+    bool hasK = (choice == sk_1);
+
+    int kPos = -1;   /* which coefficient index holds k (0=leading) */
+
+    /* Collect coefficients */
+    double coeffs[6];
+    char titleBuf[32];
+
+    for (int i = 0; i <= deg; i++) {
+        snprintf(titleBuf, sizeof(titleBuf),
+                 "COEFF of x^%d", deg - i);
+        startScreen(titleBuf, "[CLEAR] Back");
+        printSubheader(hasK ? "Enter 0 for the k term" : "Enter coefficient");
+        printBlank();
+
+        /* Show coefficients entered so far */
+        for (int j = 0; j < i; j++) {
+            char prev[28];
+            if (j == kPos)
+                snprintf(prev, sizeof(prev), "  x^%d: k", deg - j);
+            else {
+                char nb[12];
+                formatNumber(nb, sizeof(nb), coeffs[j]);
+                snprintf(prev, sizeof(prev), "  x^%d: %s", deg - j, nb);
+            }
+            printLine(prev, COL_GRAY);
+        }
+
+        char prompt[14];
+        snprintf(prompt, sizeof(prompt), "x^%d coeff = ", deg - i);
+        double cv = inputNumber(prompt); CHECK_CANCEL;
+        coeffs[i] = cv;
+
+        /* If hasK and this is zero, ask if this is the k position */
+        if (hasK && fabs(cv) < MATH_EPS && kPos < 0) {
+            drawFooter("Is this the k term? 1=Yes 2=No");
+            blit();
+            uint8_t kChoice;
+            do { kChoice = waitForKey(); }
+            while (kChoice != sk_1 && kChoice != sk_2
+                   && kChoice != sk_Clear);
+            if (kChoice == sk_Clear) { gUserCancelled = true; return; }
+            if (kChoice == sk_1) kPos = i;
+        }
+    }
+
+    if (hasK && kPos < 0) {
+        printDivider();
+        printLine("No k position marked", COL_RED);
+        printLine("Enter k coeff as 0", COL_BLACK);
+        waitContinue();
+        return;
+    }
+
+    /* Enter divisor root r  (dividing by x-r) */
+    startScreen("REMAINDER/FACTOR THM", "[CLEAR] Back");
+    printSubheader("Divisor = (x - r)");
+    printBlank();
+    double r = inputNumber("r = "); CHECK_CANCEL;
+
+    /* Enter desired remainder */
+    double desiredRem = 0.0;
+    if (!hasK) {
+        /* Just compute and display */
+    } else {
+        printLine("Desired remainder:", COL_NAVY);
+        printLine("(0 = factor theorem)", COL_GRAY);
+        desiredRem = inputNumber("Remainder = "); CHECK_CANCEL;
+    }
+
+    printDivider();
+
+    char lineBuf[52], n1[20];
+
+    if (!hasK) {
+        /* Mode A: evaluate P(r) */
+        double rem = evalPoly(coeffs, deg, r);
+        formatNumber(n1, sizeof(n1), r);
+        snprintf(lineBuf, sizeof(lineBuf), "P(%s) = remainder", n1);
+        printLine(lineBuf, COL_BLACK);
+
+        formatNumber(n1, sizeof(n1), rem);
+        snprintf(lineBuf, sizeof(lineBuf), "Remainder = %s", n1);
+        printLine(lineBuf, fabs(rem) < MATH_EPS ? COL_GREEN : COL_ORANGE);
+
+        if (fabs(rem) < MATH_EPS)
+            printLine("(x-r) IS a factor", COL_GREEN);
+        else
+            printLine("(x-r) is NOT a factor", COL_RED);
+
+    } else {
+        /*
+         * Mode B: find k.
+         * P(r) = desiredRem
+         * Let S = sum of all known terms evaluated at r.
+         * The k term contributes k * r^(deg-kPos).
+         * So: S + k * r^(deg-kPos) = desiredRem
+         * k = (desiredRem - S) / r^(deg-kPos)
+         */
+        double S = 0.0;
+        double rPow = 1.0;
+        /* Evaluate known terms using Horner manually */
+        /* Easier: just evaluate twice — once with k=0, once with k=1 */
+        /* P(r)|_k=0  +  k * (contribution of k term) = desiredRem */
+
+        /* Contribution of k term at position kPos:
+           position kPos means coefficient of x^(deg-kPos)
+           value = r^(deg-kPos)                                 */
+        double kContrib = 1.0;
+        int kPow = deg - kPos;
+        for (int i = 0; i < kPow; i++) kContrib *= r;
+
+        /* Evaluate rest of polynomial (k=0) */
+        S = evalPoly(coeffs, deg, r);   /* coeffs[kPos]=0 already */
+
+        if (fabs(kContrib) < MATH_EPS) {
+            printLine("k term vanishes at r", COL_RED);
+            printLine("Cannot solve for k", COL_RED);
+        } else {
+            double k = (desiredRem - S) / kContrib;
+            formatNumber(n1, sizeof(n1), k);
+            snprintf(lineBuf, sizeof(lineBuf), "k = %s", n1);
+            printLine(lineBuf, COL_GREEN);
+
+            /* Verify */
+            coeffs[kPos] = k;
+            double check = evalPoly(coeffs, deg, r);
+            formatNumber(n1, sizeof(n1), check);
+            snprintf(lineBuf, sizeof(lineBuf), "Verify P(r) = %s", n1);
+            printLine(lineBuf,
+                      fabs(check - desiredRem) < 1e-6 ? COL_GRAY : COL_RED);
+        }
+    }
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   2. FACTOR THEOREM — MULTIPLE KNOWN FACTORS
+   Given n factors (x-r1),(x-r2),..., all of degree-n
+   polynomial Ax^n + Bx^(n-1) + ... find all unknowns.
+   ───────────────────────────────────────────── */
+static void solveMultipleFactors(void)
+{
+    RESET_CANCEL();
+    startScreen("MULTIPLE FACTORS", "[CLEAR] Back");
+    printSubheader("Known factors -> coeffs");
+    printBlank();
+
+    double degVal = inputNumber("Polynomial degree = "); CHECK_CANCEL;
+    int deg = (int)round(degVal);
+
+    if (deg < 2 || deg > 5) {
+        printDivider();
+        printLine("Degree must be 2 to 5", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    double nFactVal = inputNumber("# of known factors = "); CHECK_CANCEL;
+    int nFact = (int)round(nFactVal);
+
+    if (nFact < 1 || nFact > deg) {
+        printDivider();
+        printLine("Must be 1 to degree", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    /* Collect roots from factors (x - ri) */
+    double roots[5];
+    for (int i = 0; i < nFact; i++) {
+        char titleBuf[32];
+        snprintf(titleBuf, sizeof(titleBuf),
+                 "FACTOR %d of %d", i + 1, nFact);
+        startScreen(titleBuf, "[CLEAR] Back");
+        printSubheader("Factor is (x - r)");
+        printBlank();
+
+        for (int j = 0; j < i; j++) {
+            char prev[24];
+            char nb[12];
+            formatNumber(nb, sizeof(nb), roots[j]);
+            snprintf(prev, sizeof(prev), "  r%d = %s", j+1, nb);
+            printLine(prev, COL_GRAY);
+        }
+
+        char prompt[10];
+        snprintf(prompt, sizeof(prompt), "r%d = ", i + 1);
+        roots[i] = inputNumber(prompt); CHECK_CANCEL;
+    }
+
+    /* Collect known polynomial coefficients (unknowns entered as 0) */
+    startScreen("MULTIPLE FACTORS", "[CLEAR] Back");
+    printSubheader("Enter poly coefficients");
+    printLine("(Enter 0 for unknowns)", COL_GRAY);
+    printBlank();
+
+    double coeffs[6] = {0};
+    bool   isUnknown[6] = {false};
+
+    /* Leading coefficient is always known (usually 1) */
+    coeffs[0] = inputNumber("Leading coeff = "); CHECK_CANCEL;
+
+    for (int i = 1; i <= deg; i++) {
+        char prompt[16];
+        snprintf(prompt, sizeof(prompt), "x^%d coeff = ", deg - i);
+        double cv = inputNumber(prompt); CHECK_CANCEL;
+        coeffs[i] = cv;
+
+        /* If entered 0, ask if unknown */
+        if (fabs(cv) < MATH_EPS) {
+            drawFooter("Is this unknown? 1=Yes 2=No");
+            blit();
+            uint8_t kc;
+            do { kc = waitForKey(); }
+            while (kc != sk_1 && kc != sk_2 && kc != sk_Clear);
+            if (kc == sk_Clear) { gUserCancelled = true; return; }
+            if (kc == sk_1) isUnknown[i] = true;
+        }
+    }
+
+    /* For each known root r, P(r)=0 gives one equation.
+     * For simple cases (one or two unknowns), solve directly. */
+    int unknownCount = 0;
+    int unknownIdx[5];
+    for (int i = 0; i <= deg; i++)
+        if (isUnknown[i]) unknownIdx[unknownCount++] = i;
+
+    printDivider();
+    char lineBuf[52], n1[20], n2[20];
+
+    if (unknownCount == 0) {
+        /* Just verify the factors */
+        bool allValid = true;
+        for (int i = 0; i < nFact; i++) {
+            double val = evalPoly(coeffs, deg, roots[i]);
+            if (fabs(val) > 1e-6) allValid = false;
+        }
+        printLine(allValid ? "All factors verified" : "Factor mismatch",
+                  allValid ? COL_GREEN : COL_RED);
+
+    } else if (unknownCount == 1 && nFact >= 1) {
+        /* One unknown: use first root equation
+         * S + unknownCoeff * r^power = 0
+         * unknownCoeff = -S / r^power                */
+        int ui    = unknownIdx[0];
+        int power = deg - ui;
+        double r  = roots[0];
+
+        double rPow = 1.0;
+        for (int i = 0; i < power; i++) rPow *= r;
+
+        double S = evalPoly(coeffs, deg, r);
+
+        if (fabs(rPow) < MATH_EPS) {
+            printLine("Cannot solve: r^p=0", COL_RED);
+        } else {
+            double unknown = -S / rPow;
+            formatNumber(n1, sizeof(n1), unknown);
+            snprintf(lineBuf, sizeof(lineBuf),
+                     "x^%d coeff = %s", power, n1);
+            printLine(lineBuf, COL_GREEN);
+
+            /* Verify remaining roots */
+            coeffs[ui] = unknown;
+            bool allOk = true;
+            for (int i = 1; i < nFact; i++) {
+                double val = evalPoly(coeffs, deg, roots[i]);
+                if (fabs(val) > 1e-6) allOk = false;
+            }
+            if (!allOk) printLine("Warning: check roots", COL_RED);
+
+            /* Print full polynomial */
+            printBlank();
+            printLine("Full polynomial:", COL_ORANGE);
+            char polyStr[52];
+            polyStr[0] = '\0';
+            for (int i = 0; i <= deg; i++) {
+                char term[16];
+                int pw = deg - i;
+                formatNumber(n1, sizeof(n1), coeffs[i]);
+                if (pw == 0)      snprintf(term, sizeof(term), "%s", n1);
+                else if (pw == 1) snprintf(term, sizeof(term), "%sx", n1);
+                else              snprintf(term, sizeof(term), "%sx^%d", n1, pw);
+                if (i > 0 && coeffs[i] >= 0)
+                    strncat(polyStr, "+", sizeof(polyStr)-strlen(polyStr)-1);
+                strncat(polyStr, term, sizeof(polyStr)-strlen(polyStr)-1);
+            }
+            printLine(polyStr, COL_BLACK);
+        }
+
+    } else if (unknownCount == 2 && nFact >= 2) {
+        /* Two unknowns: 2x2 system from two root equations
+         * coeffs at ui0 and ui1 are unknown.
+         * P(r0) = S0 + k0*r0^p0 + k1*r0^p1 = 0
+         * P(r1) = S1 + k0*r1^p0 + k1*r1^p1 = 0
+         */
+        int ui0 = unknownIdx[0], ui1 = unknownIdx[1];
+        int p0  = deg - ui0,     p1  = deg - ui1;
+        double r0 = roots[0],    r1  = roots[1];
+
+        double r0p0=1.0, r0p1=1.0, r1p0=1.0, r1p1=1.0;
+        for (int i=0;i<p0;i++){r0p0*=r0; r1p0*=r1;}
+        for (int i=0;i<p1;i++){r0p1*=r0; r1p1*=r1;}
+
+        double S0 = evalPoly(coeffs, deg, r0);
+        double S1 = evalPoly(coeffs, deg, r1);
+
+        /* a11*k0 + a12*k1 = b1
+           a21*k0 + a22*k1 = b2 */
+        double a11=r0p0, a12=r0p1, b1=-S0;
+        double a21=r1p0, a22=r1p1, b2=-S1;
+        double det = a11*a22 - a12*a21;
+
+        if (fabs(det) < MATH_EPS) {
+            printLine("System is singular", COL_RED);
+        } else {
+            double k0 = (b1*a22 - b2*a12) / det;
+            double k1 = (a11*b2 - a21*b1) / det;
+
+            formatNumber(n1, sizeof(n1), k0);
+            snprintf(lineBuf, sizeof(lineBuf), "x^%d coeff = %s", p0, n1);
+            printLine(lineBuf, COL_GREEN);
+
+            formatNumber(n1, sizeof(n1), k1);
+            snprintf(lineBuf, sizeof(lineBuf), "x^%d coeff = %s", p1, n1);
+            printLine(lineBuf, COL_GREEN);
+
+            /* Ordered triple if degree 3 */
+            if (deg == 3) {
+                coeffs[ui0] = k0; coeffs[ui1] = k1;
+                formatNumber(n1, sizeof(n1), coeffs[1]);
+                formatNumber(n2, sizeof(n2), coeffs[2]);
+                char n3[20];
+                formatNumber(n3, sizeof(n3), coeffs[3]);
+                snprintf(lineBuf, sizeof(lineBuf),
+                         "(%s, %s, %s)", n1, n2, n3);
+                printLine(lineBuf, COL_BLACK);
+            }
+        }
+    } else {
+        printLine("Too many unknowns", COL_RED);
+        printLine("Need unknowns <= factors", COL_BLACK);
+    }
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   3. BUILD POLYNOMIAL FROM ROOTS
+   ───────────────────────────────────────────── */
+static void solvePolyFromRoots(void)
+{
+    RESET_CANCEL();
+    startScreen("POLY FROM ROOTS", "[CLEAR] Back");
+    printSubheader("Enter roots -> polynomial");
+    printBlank();
+
+    double nVal = inputNumber("# of roots = "); CHECK_CANCEL;
+    int n = (int)round(nVal);
+
+    if (n < 1 || n > 5) {
+        printDivider();
+        printLine("1 to 5 roots only", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    double leadVal = inputNumber("Leading coeff = "); CHECK_CANCEL;
+
+    double roots[5];
+    for (int i = 0; i < n; i++) {
+        char titleBuf[24];
+        snprintf(titleBuf, sizeof(titleBuf), "ROOT %d of %d", i+1, n);
+        startScreen(titleBuf, "[CLEAR] Back");
+        printSubheader("(x - root) is a factor");
+        printBlank();
+
+        for (int j = 0; j < i; j++) {
+            char prev[20]; char nb[12];
+            formatNumber(nb, sizeof(nb), roots[j]);
+            snprintf(prev, sizeof(prev), "  r%d = %s", j+1, nb);
+            printLine(prev, COL_GRAY);
+        }
+
+        char prompt[10];
+        snprintf(prompt, sizeof(prompt), "r%d = ", i+1);
+        roots[i] = inputNumber(prompt); CHECK_CANCEL;
+    }
+
+    /* Multiply out (x-r1)(x-r2)...(x-rn) using convolution */
+    double poly[6] = {0};
+    poly[0] = 1.0;   /* start with 1 */
+
+    for (int i = 0; i < n; i++) {
+        /* Multiply current poly by (x - roots[i]) */
+        double newPoly[6] = {0};
+        for (int j = 0; j <= i; j++) {
+            newPoly[j]   += poly[j];            /* x * poly[j-1] */
+            newPoly[j+1] += poly[j] * (-roots[i]); /* -r * poly[j] */
+        }
+        for (int j = 0; j <= i+1; j++) poly[j] = newPoly[j];
+    }
+
+    /* Scale by leading coefficient */
+    for (int i = 0; i <= n; i++) poly[i] *= leadVal;
+
+    printDivider();
+    printLine("Polynomial:", COL_ORANGE);
+
+    char lineBuf[52], n1[20];
+
+    for (int i = 0; i <= n && gCurrentLine < MAX_LINES - 1; i++) {
+        int pw = n - i;
+        formatNumber(n1, sizeof(n1), poly[i]);
+        if (pw == 0)
+            snprintf(lineBuf, sizeof(lineBuf), "  constant = %s", n1);
+        else if (pw == 1)
+            snprintf(lineBuf, sizeof(lineBuf), "  x^1 coeff = %s", n1);
+        else
+            snprintf(lineBuf, sizeof(lineBuf), "  x^%d coeff = %s", pw, n1);
+        printLine(lineBuf, COL_GREEN);
+    }
+
+    /* Sum of coefficients */
+    double sumCoeffs = 0.0;
+    for (int i = 0; i <= n; i++) sumCoeffs += poly[i];
+    formatNumber(n1, sizeof(n1), sumCoeffs);
+    snprintf(lineBuf, sizeof(lineBuf), "Sum of coeffs = %s", n1);
+    printLine(lineBuf, COL_BLACK);
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   4. GENERAL VIETA'S RELATIONS
+   Degree 2 or 3 — compute ALL root relations
+   including sum of squares, used for Q20 2013
+   ───────────────────────────────────────────── */
+static void solveVietasFormulas(void)
+{
+    RESET_CANCEL();
+    startScreen("VIETA'S FORMULAS", "[CLEAR] Back");
+    printSubheader("All root relations");
+    printBlank();
+
+    double degVal = inputNumber("Degree (2 or 3) = "); CHECK_CANCEL;
+    int deg = (int)round(degVal);
+
+    if (deg != 2 && deg != 3) {
+        printDivider();
+        printLine("Enter 2 or 3", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    char lineBuf[52], n1[20], n2[20];
+
+    if (deg == 2) {
+        startScreen("VIETA'S (QUADRATIC)", "[CLEAR] Back");
+        printSubheader("Ax^2 + Bx + C = 0");
+        printBlank();
+
+        double A = inputNumber("A = "); CHECK_CANCEL;
+        double B = inputNumber("B = "); CHECK_CANCEL;
+        double C = inputNumber("C = "); CHECK_CANCEL;
+
+        if (fabs(A) < MATH_EPS) {
+            printDivider();
+            printLine("A cannot be 0", COL_RED);
+            waitContinue();
+            return;
+        }
+
+        double sumR   = -B / A;
+        double prodR  = C / A;
+        double sumSqR = sumR * sumR - 2.0 * prodR;
+        double disc   = B*B - 4.0*A*C;
+
+        printDivider();
+
+        formatNumber(n1, sizeof(n1), sumR);
+        snprintf(lineBuf, sizeof(lineBuf), "r1+r2       = %s", n1);
+        printLine(lineBuf, COL_GREEN);
+
+        formatNumber(n1, sizeof(n1), prodR);
+        snprintf(lineBuf, sizeof(lineBuf), "r1*r2       = %s", n1);
+        printLine(lineBuf, COL_GREEN);
+
+        formatNumber(n1, sizeof(n1), sumSqR);
+        snprintf(lineBuf, sizeof(lineBuf), "r1^2+r2^2   = %s", n1);
+        printLine(lineBuf, COL_GREEN);
+
+        /* |r1 - r2| = sqrt(disc) / |A| */
+        if (disc >= -MATH_EPS) {
+            double absDiff = sqrt(fabs(disc)) / fabs(A);
+            formatNumber(n1, sizeof(n1), absDiff);
+            snprintf(lineBuf, sizeof(lineBuf), "|r1-r2|     = %s", n1);
+            printLine(lineBuf, COL_GREEN);
+        } else {
+            printLine("|r1-r2|     = complex", COL_ORANGE);
+        }
+
+        /* Sum of cubes: (r1+r2)^3 - 3r1r2(r1+r2) */
+        double sumCuR = sumR*sumR*sumR - 3.0*prodR*sumR;
+        formatNumber(n1, sizeof(n1), sumCuR);
+        snprintf(lineBuf, sizeof(lineBuf), "r1^3+r2^3   = %s", n1);
+        printLine(lineBuf, COL_GREEN);
+
+        formatNumber(n1, sizeof(n1), disc);
+        snprintf(lineBuf, sizeof(lineBuf), "Discriminant= %s", n1);
+        printLine(lineBuf, COL_BLACK);
+
+    } else {
+        startScreen("VIETA'S (CUBIC)", "[CLEAR] Back");
+        printSubheader("Ax^3+Bx^2+Cx+D=0");
+        printBlank();
+
+        double A = inputNumber("A = "); CHECK_CANCEL;
+        double B = inputNumber("B = "); CHECK_CANCEL;
+        double C = inputNumber("C = "); CHECK_CANCEL;
+        double D = inputNumber("D = "); CHECK_CANCEL;
+
+        if (fabs(A) < MATH_EPS) {
+            printDivider();
+            printLine("A cannot be 0", COL_RED);
+            waitContinue();
+            return;
+        }
+
+        double e1 = -B / A;             /* r1+r2+r3          */
+        double e2 =  C / A;             /* r1r2+r1r3+r2r3    */
+        double e3 = -D / A;             /* r1*r2*r3          */
+
+        double sumSqR  = e1*e1 - 2.0*e2;           /* r1^2+r2^2+r3^2  */
+        double sumCuR  = e1*e1*e1 - 3.0*e1*e2
+                       + 3.0*e3;                    /* r1^3+r2^3+r3^3  */
+        double sumPr12 = e1*e2 - 3.0*e3;            /* r1^2r2+...      */
+        double sumSqProd = e2*e2 - 2.0*e1*e3;       /* r1^2r2^2+...    */
+
+        printDivider();
+
+        formatNumber(n1, sizeof(n1), e1);
+        snprintf(lineBuf, sizeof(lineBuf), "r1+r2+r3     = %s", n1);
+        printLine(lineBuf, COL_GREEN);
+
+        formatNumber(n1, sizeof(n1), e2);
+        snprintf(lineBuf, sizeof(lineBuf), "r1r2+r1r3+r2r3=%s", n1);
+        printLine(lineBuf, COL_GREEN);
+
+        formatNumber(n1, sizeof(n1), e3);
+        snprintf(lineBuf, sizeof(lineBuf), "r1*r2*r3     = %s", n1);
+        printLine(lineBuf, COL_GREEN);
+
+        formatNumber(n1, sizeof(n1), sumSqR);
+        snprintf(lineBuf, sizeof(lineBuf), "r1^2+r2^2+r3^2=%s", n1);
+        printLine(lineBuf, COL_GREEN);
+
+        formatNumber(n1, sizeof(n1), sumCuR);
+        snprintf(lineBuf, sizeof(lineBuf), "r1^3+r2^3+r3^3=%s", n1);
+        printLine(lineBuf, COL_GREEN);
+
+        formatNumber(n1, sizeof(n1), sumSqProd);
+        snprintf(lineBuf, sizeof(lineBuf), "r1^2r2^2+...=%s", n1);
+        printLine(lineBuf, COL_GREEN);
+    }
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   5. GENERAL ROOT CONDITION FINDER
+   Given Ax^2+Bx+C=0, one coeff unknown,
+   user picks what root condition is known,
+   solver finds the unknown coefficient.
+   ───────────────────────────────────────────── */
+static void solveRootCondition(void)
+{
+    RESET_CANCEL();
+    startScreen("ROOT CONDITION", "[CLEAR] Back");
+    printSubheader("Quadratic, find coeff");
+    printBlank();
+
+    printLine("Which coeff is unknown?", COL_NAVY);
+    printLine("1:A  2:B  3:C", COL_ORANGE);
+    blit();
+    uint8_t uc;
+    do { uc = waitForKey(); }
+    while (uc != sk_1 && uc != sk_2 && uc != sk_3 && uc != sk_Clear);
+    if (uc == sk_Clear) { gUserCancelled = true; return; }
+    int unknownCoeff = (int)(uc - sk_0);  /* 1,2,3 */
+
+    double A=0, B=0, C=0;
+    if (unknownCoeff != 1) { A = inputNumber("A = "); CHECK_CANCEL; }
+    if (unknownCoeff != 2) { B = inputNumber("B = "); CHECK_CANCEL; }
+    if (unknownCoeff != 3) { C = inputNumber("C = "); CHECK_CANCEL; }
+
+    /* Pick condition type */
+    startScreen("ROOT CONDITION", "[CLEAR] Back");
+    printSubheader("Known condition:");
+    printBlank();
+    printLine("1: r1+r2 = S", COL_BLACK);
+    printLine("2: r1*r2 = P", COL_BLACK);
+    printLine("3: |r1-r2| = d", COL_BLACK);
+    printLine("4: r1^2+r2^2 = Q", COL_BLACK);
+    printLine("5: r2 = r1^2", COL_BLACK);
+    printLine("6: r2 = k*r1", COL_BLACK);
+    blit();
+
+    uint8_t cond;
+    do { cond = waitForKey(); }
+    while ((cond < sk_1 || cond > sk_6) && cond != sk_Clear);
+    if (cond == sk_Clear) { gUserCancelled = true; return; }
+    int condType = (int)(cond - sk_0);
+
+    double condVal = 0.0;
+    if (condType != 5) {
+        char prompt[20];
+        switch (condType) {
+            case 1: snprintf(prompt,sizeof(prompt),"S (sum) = ");    break;
+            case 2: snprintf(prompt,sizeof(prompt),"P (product) = ");break;
+            case 3: snprintf(prompt,sizeof(prompt),"|r1-r2| = ");    break;
+            case 4: snprintf(prompt,sizeof(prompt),"Q (sum sq) = "); break;
+            case 6: snprintf(prompt,sizeof(prompt),"k (ratio) = ");  break;
+            default: break;
+        }
+        condVal = inputNumber(prompt); CHECK_CANCEL;
+    }
+
+    printDivider();
+    char lineBuf[52], n1[20];
+
+    /*
+     * Vieta's for Ax^2+Bx+C=0:
+     *   sum  = -B/A
+     *   prod =  C/A
+     *
+     * Express condition in terms of the unknown coefficient.
+     */
+    double result = 0.0;
+    bool   valid  = true;
+
+    if (unknownCoeff == 2) {
+        /* Unknown is B.  sum = -B/A  =>  B = -A*sum */
+        switch (condType) {
+            case 1: result = -A * condVal;            break; /* B=-A*S */
+            case 2: result = B;  valid=false; break;  /* prod=C/A, no B */
+            case 3: /* |r1-r2|=d: disc=d²A²
+                       B²-4AC = d²A²  =>  B=sqrt(d²A²+4AC) */
+            {
+                double underB = condVal*condVal*A*A + 4.0*A*C;
+                if (underB < -MATH_EPS) { valid=false; break; }
+                result = sqrt(fabs(underB));
+                formatNumber(n1, sizeof(n1), result);
+                snprintf(lineBuf, sizeof(lineBuf), "B = +/- %s", n1);
+                printLine(lineBuf, COL_GREEN);
+                formatNumber(n1, sizeof(n1), -result);
+                snprintf(lineBuf, sizeof(lineBuf), "  or B = %s", n1);
+                printLine(lineBuf, COL_GREEN);
+                waitContinue();
+                return;
+            }
+            case 4: /* sum^2-2prod=Q => (B/A)^2-2C/A=Q => B^2=A^2(Q+2C/A) */
+            {
+                double underB = A*A*(condVal + 2.0*C/A);
+                if (underB < -MATH_EPS) { valid=false; break; }
+                result = sqrt(fabs(underB));
+                formatNumber(n1, sizeof(n1), result);
+                snprintf(lineBuf, sizeof(lineBuf), "B = +/- %s", n1);
+                printLine(lineBuf, COL_GREEN);
+                formatNumber(n1, sizeof(n1), -result);
+                snprintf(lineBuf, sizeof(lineBuf), "  or B = %s", n1);
+                printLine(lineBuf, COL_GREEN);
+                waitContinue();
+                return;
+            }
+            case 5: /* r2=r1^2: r1^3=C/A, B=-A(r1+r1^2) */
+            {
+                double r1 = cbrt(C / A);
+                result    = -A * (r1 + r1*r1);
+                break;
+            }
+            case 6: /* r2=k*r1: sum=(1+k)r1=-B/A, prod=k*r1^2=C/A */
+            {
+                /* r1^2=C/(Ak), r1=-B/(A(1+k)) => B^2/(A^2(1+k)^2)=C/(Ak) */
+                /* B = -A*(1+k)*r1, r1=cbrt... use prod to find r1 */
+                double r1sq = C / (A * condVal);
+                if (r1sq < -MATH_EPS) { valid=false; break; }
+                double r1 = (r1sq >= 0) ? sqrt(r1sq) : -sqrt(-r1sq);
+                /* pick sign from sum */
+                /* r1 + k*r1 = -B/A  =>  B = -A*r1*(1+condVal) */
+                /* But we don't know sign of r1 yet — give both */
+                result = -A * r1 * (1.0 + condVal);
+                formatNumber(n1, sizeof(n1), result);
+                snprintf(lineBuf, sizeof(lineBuf), "B = %s", n1);
+                printLine(lineBuf, COL_GREEN);
+                formatNumber(n1, sizeof(n1), -result);
+                snprintf(lineBuf, sizeof(lineBuf), "  or B = %s", n1);
+                printLine(lineBuf, COL_GREEN);
+                waitContinue();
+                return;
+            }
+            default: valid=false; break;
+        }
+
+    } else if (unknownCoeff == 3) {
+        /* Unknown is C.  prod = C/A */
+        switch (condType) {
+            case 1: valid=false; break; /* sum doesn't involve C */
+            case 2: result = A * condVal; break; /* C=A*P */
+            case 3: /* disc=B^2-4AC=d^2A^2 => C=(B^2-d^2A^2)/(4A) */
+                result = (B*B - condVal*condVal*A*A) / (4.0*A);
+                break;
+            case 4: /* Q=sum^2-2prod => C=A*(sum^2-Q)/2=A*((B/A)^2-Q)/2 */
+                result = A * ((B/A)*(B/A) - condVal) / 2.0;
+                break;
+            case 5: /* r1^3=C/A => C=A*r1^3; r1 from sum: 2r1=-B/A... */
+                  /* r2=r1^2, sum=r1+r1^2=-B/A, so r1 satisfies r1^2+r1+B/A=0 */
+            {
+                double disc2 = 1.0 - 4.0*(B/A);
+                if (disc2 < -MATH_EPS) { valid=false; break; }
+                double r1a = (-1.0+sqrt(fabs(disc2)))/2.0;
+                double r1b = (-1.0-sqrt(fabs(disc2)))/2.0;
+                double Ca  = A * r1a * r1a * r1a;
+                double Cb  = A * r1b * r1b * r1b;
+                formatNumber(n1, sizeof(n1), Ca);
+                snprintf(lineBuf, sizeof(lineBuf), "C = %s", n1);
+                printLine(lineBuf, COL_GREEN);
+                formatNumber(n1, sizeof(n1), Cb);
+                snprintf(lineBuf, sizeof(lineBuf), "  or C = %s", n1);
+                printLine(lineBuf, COL_GREEN);
+                waitContinue();
+                return;
+            }
+            case 6: /* r2=k*r1: prod=k*r1^2=C/A; sum=(1+k)r1=-B/A
+                       r1=-B/(A(1+k)), C=A*k*r1^2 */
+            {
+                if (fabs(1.0+condVal) < MATH_EPS) { valid=false; break; }
+                double r1 = -B / (A*(1.0+condVal));
+                result = A * condVal * r1 * r1;
+                break;
+            }
+            default: valid=false; break;
+        }
+
+    } else {
+        /* Unknown is A */
+        switch (condType) {
+            case 1: /* sum=-B/A=S => A=-B/S */
+                if (fabs(condVal)<MATH_EPS){valid=false;break;}
+                result = -B / condVal;
+                break;
+            case 2: /* prod=C/A=P => A=C/P */
+                if (fabs(condVal)<MATH_EPS){valid=false;break;}
+                result = C / condVal;
+                break;
+            case 3: /* disc=B^2-4AC=d^2A^2 => A(4C+d^2A)=B^2 — quadratic in A */
+            {
+                double dd = condVal*condVal;
+                /* dd*A^2 + 4C*A - B^2 = 0 */
+                if (fabs(dd) < MATH_EPS) { valid=false; break; }
+                double disc2 = 16.0*C*C + 4.0*dd*B*B;
+                if (disc2 < -MATH_EPS) { valid=false; break; }
+                double A1 = (-4.0*C + sqrt(fabs(disc2))) / (2.0*dd);
+                double A2 = (-4.0*C - sqrt(fabs(disc2))) / (2.0*dd);
+                formatNumber(n1, sizeof(n1), A1);
+                snprintf(lineBuf, sizeof(lineBuf), "A = %s", n1);
+                printLine(lineBuf, COL_GREEN);
+                formatNumber(n1, sizeof(n1), A2);
+                snprintf(lineBuf, sizeof(lineBuf), "  or A = %s", n1);
+                printLine(lineBuf, COL_GREEN);
+                waitContinue();
+                return;
+            }
+            default: valid=false; break;
+        }
+    }
+
+    if (!valid) {
+        printLine("Cannot determine from", COL_RED);
+        printLine("this condition alone", COL_RED);
+    } else {
+        char label[4] = {'A'+unknownCoeff-1, '\0', '\0', '\0'};
+        formatNumber(n1, sizeof(n1), result);
+        snprintf(lineBuf, sizeof(lineBuf), "%s = %s", label, n1);
+        printLine(lineBuf, COL_GREEN);
+    }
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   6. COMMON ROOT — GENERAL (any degree up to 3)
+   ───────────────────────────────────────────── */
+static void solveCommonRoot(void)
+{
+    RESET_CANCEL();
+    startScreen("COMMON ROOT", "[CLEAR] Back");
+    printSubheader("Two polys, same unknown k");
+    printBlank();
+
+    double degVal = inputNumber("Degree = "); CHECK_CANCEL;
+    int deg = (int)round(degVal);
+
+    if (deg < 2 || deg > 3) {
+        printDivider();
+        printLine("Degree 2 or 3 only", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    /* Both polynomials share the same k in the SAME position */
+    printLine("Same k in same position", COL_NAVY);
+    printLine("in both polynomials.", COL_NAVY);
+
+    double p1[4]={0}, p2[4]={0};
+    int kPos = -1;
+
+    for (int poly = 0; poly < 2; poly++) {
+        char titleBuf[20];
+        snprintf(titleBuf, sizeof(titleBuf), "POLYNOMIAL %d", poly+1);
+        startScreen(titleBuf, "[CLEAR] Back");
+        printSubheader("Enter 0 for k position");
+        printBlank();
+
+        for (int i = 0; i <= deg; i++) {
+            char prompt[14];
+            snprintf(prompt, sizeof(prompt), "x^%d coeff = ", deg-i);
+            double cv = inputNumber(prompt); CHECK_CANCEL;
+            (poly==0 ? p1 : p2)[i] = cv;
+
+            if (fabs(cv) < MATH_EPS && kPos < 0 && poly == 0) {
+                drawFooter("Is this k? 1=Yes 2=No");
+                blit();
+                uint8_t kc;
+                do { kc = waitForKey(); }
+                while (kc!=sk_1 && kc!=sk_2 && kc!=sk_Clear);
+                if (kc==sk_Clear){gUserCancelled=true;return;}
+                if (kc==sk_1) kPos = i;
+            }
+        }
+        if (poly==0 && kPos >= 0) p2[kPos] = 0;  /* mark same position */
+    }
+
+    if (kPos < 0) {
+        printDivider();
+        printLine("No k position marked", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    /* Subtract p1 - p2 to eliminate k term:
+     * Since k appears in same position in both, it cancels.
+     * Result is a polynomial of degree < deg with no unknowns.
+     * Solve it for the common root x0.                         */
+    double diff[4] = {0};
+    for (int i = 0; i <= deg; i++) diff[i] = p1[i] - p2[i];
+    /* diff[kPos] = 0 by construction */
+
+    /* Find the root of the difference polynomial */
+    /* For degree 2/3 difference is degree (deg-1) at most */
+    /* Find effective degree of diff */
+    int effDeg = 0;
+    for (int i = 0; i <= deg; i++)
+        if (fabs(diff[i]) > MATH_EPS) effDeg = deg - i;
+
+    double x0 = 0.0;
+    bool   found = false;
+    char   lineBuf[52], n1[20], n2[20];
+
+    printDivider();
+
+    if (effDeg == 1) {
+        /* Linear: a*x + b = 0 */
+        int ai = -1, bi = -1;
+        for (int i = 0; i <= deg; i++) {
+            if (deg-i == 1 && fabs(diff[i])>MATH_EPS) ai=i;
+            if (deg-i == 0 && fabs(diff[i])>MATH_EPS) bi=i;
+        }
+        if (ai >= 0 && fabs(diff[ai]) > MATH_EPS) {
+            x0 = (bi>=0 ? -diff[bi] : 0.0) / diff[ai];
+            found = true;
+        }
+    } else if (effDeg == 2) {
+        /* Quadratic: use quadratic formula */
+        double qa=0, qb=0, qc=0;
+        for (int i=0;i<=deg;i++){
+            if (deg-i==2) qa=diff[i];
+            if (deg-i==1) qb=diff[i];
+            if (deg-i==0) qc=diff[i];
+        }
+        double disc2 = qb*qb-4.0*qa*qc;
+        if (disc2 >= -MATH_EPS) {
+            x0 = (-qb+sqrt(fabs(disc2)))/(2.0*qa);
+            found = true;
+            /* Also try the other root */
+            double x0b = (-qb-sqrt(fabs(disc2)))/(2.0*qa);
+            formatNumber(n1, sizeof(n1), x0);
+            formatNumber(n2, sizeof(n2), x0b);
+            snprintf(lineBuf, sizeof(lineBuf),
+                     "Candidate roots: %s, %s", n1, n2);
+            printLine(lineBuf, COL_BLACK);
+        }
+    }
+
+    if (!found) {
+        printLine("Cannot find common root", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    formatNumber(n1, sizeof(n1), x0);
+    snprintf(lineBuf, sizeof(lineBuf), "Common root x = %s", n1);
+    printLine(lineBuf, COL_BLACK);
+
+    /* Substitute x0 into p1 to find k:
+     * p1(x0) = S + k * x0^(deg-kPos) = 0
+     * k = -S / x0^(deg-kPos)              */
+    int kPow = deg - kPos;
+    double rPow = 1.0;
+    for (int i = 0; i < kPow; i++) rPow *= x0;
+
+    double S = evalPoly(p1, deg, x0); /* p1[kPos]=0 already */
+
+    if (fabs(rPow) < MATH_EPS) {
+        printLine("k indeterminate (x0=0)", COL_ORANGE);
+    } else {
+        double k = -S / rPow;
+        formatNumber(n1, sizeof(n1), k);
+        snprintf(lineBuf, sizeof(lineBuf), "k = %s", n1);
+        printLine(lineBuf, COL_GREEN);
+
+        /* Verify in p2 */
+        p2[kPos] = k;
+        double checkP2 = evalPoly(p2, deg, x0);
+        formatNumber(n1, sizeof(n1), checkP2);
+        snprintf(lineBuf, sizeof(lineBuf), "Verify P2(x0) = %s", n1);
+        printLine(lineBuf, fabs(checkP2)<1e-6 ? COL_GRAY : COL_RED);
+    }
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   7. NEGATIVE RECIPROCAL ROOTS — GENERAL degree
+   ───────────────────────────────────────────── */
+static void solveNegRecipRoots(void)
+{
+    RESET_CANCEL();
+    startScreen("NEG. RECIPROCAL ROOTS", "[CLEAR] Back");
+    printSubheader("f(x)->g(x), roots=-1/ri");
+    printBlank();
+
+    double degVal = inputNumber("Degree (2 or 3) = "); CHECK_CANCEL;
+    int deg = (int)round(degVal);
+
+    if (deg != 2 && deg != 3) {
+        printDivider();
+        printLine("Degree 2 or 3 only", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    printLine("f(x): most sig. first", COL_NAVY);
+    double coeffs[4] = {0};
+    for (int i = 0; i <= deg; i++) {
+        char prompt[14];
+        snprintf(prompt, sizeof(prompt), "x^%d coeff = ", deg-i);
+        coeffs[i] = inputNumber(prompt); CHECK_CANCEL;
+    }
+
+    if (fabs(coeffs[deg]) < MATH_EPS) {
+        printDivider();
+        printLine("Constant term = 0", COL_RED);
+        printLine("(root 0 has no recip)", COL_BLACK);
+        waitContinue();
+        return;
+    }
+
+    /*
+     * Substitute x = -1/t into f(t) and multiply by t^deg:
+     * For f(x) = a0*x^n + a1*x^(n-1) + ... + an
+     * g(t) = an*t^n - a(n-1)*t^(n-1) + ... + (-1)^n * a0
+     * i.e., reverse and alternate signs.
+     */
+    double gCoeffs[4] = {0};
+    for (int i = 0; i <= deg; i++) {
+        double sign = ((deg - i) % 2 == 0) ? 1.0 : -1.0;
+        gCoeffs[i] = sign * coeffs[deg - i];
+    }
+
+    /* Make leading coefficient positive */
+    if (gCoeffs[0] < 0)
+        for (int i = 0; i <= deg; i++) gCoeffs[i] = -gCoeffs[i];
+
+    /* Reduce if all integers */
+    bool allInt = true;
+    long long iCoeffs[4] = {0};
+    for (int i = 0; i <= deg; i++) {
+        iCoeffs[i] = (long long)round(gCoeffs[i]);
+        if (fabs(gCoeffs[i] - iCoeffs[i]) > MATH_EPS) allInt = false;
+    }
+
+    if (allInt) {
+        long long g = llabs(iCoeffs[0]);
+        for (int i = 1; i <= deg; i++)
+            if (iCoeffs[i])
+                g = (long long)gcd32((uint32_t)llabs(g),
+                                     (uint32_t)llabs(iCoeffs[i]));
+        if (g > 1)
+            for (int i = 0; i <= deg; i++) iCoeffs[i] /= g;
+    }
+
+    printDivider();
+    printLine("g(x) coefficients:", COL_ORANGE);
+
+    char lineBuf[52], n1[20];
+    long long sumI = 0;
+    double    sumD = 0.0;
+
+    for (int i = 0; i <= deg; i++) {
+        int pw = deg - i;
+        if (allInt) {
+            snprintf(lineBuf, sizeof(lineBuf),
+                     "  x^%d: %lld", pw, iCoeffs[i]);
+            sumI += iCoeffs[i];
+        } else {
+            formatNumber(n1, sizeof(n1), gCoeffs[i]);
+            snprintf(lineBuf, sizeof(lineBuf), "  x^%d: %s", pw, n1);
+            sumD += gCoeffs[i];
+        }
+        printLine(lineBuf, COL_GREEN);
+    }
+
+    if (allInt) {
+        snprintf(lineBuf, sizeof(lineBuf),
+                 "A+B+C+D = %lld", sumI);
+        printLine(lineBuf, COL_BLACK);
+    } else {
+        formatNumber(n1, sizeof(n1), sumD);
+        snprintf(lineBuf, sizeof(lineBuf), "Sum of coeffs = %s", n1);
+        printLine(lineBuf, COL_BLACK);
+    }
+
+    waitContinue();
+}
+
+/* ═══════════════════════════════════════════════
    SECTION 3 — FORMULA REFERENCE
    ═══════════════════════════════════════════════ */
 
@@ -2547,6 +3648,33 @@ static void showRefGeometry(void)
 /* ═══════════════════════════════════════════════
    SUB-MENUS
    ═══════════════════════════════════════════════ */
+
+static void menuTheoryOfEquations(void)
+{
+    const char *options[] = {
+        "Remainder/Factor Thm",
+        "Multiple Factors",
+        "Poly from Roots",
+        "Vieta's Formulas",
+        "Root Condition Finder",
+        "Common Root",
+        "Neg. Reciprocal Roots",
+        "Back"
+    };
+    int sel;
+    while ((sel = showMenu("THEORY OF EQUATIONS", options, 8)) >= 0) {
+        switch (sel) {
+            case 0: solveRemainderFactor();  break;
+            case 1: solveMultipleFactors();  break;
+            case 2: solvePolyFromRoots();    break;
+            case 3: solveVietasFormulas();   break;
+            case 4: solveRootCondition();    break;
+            case 5: solveCommonRoot();       break;
+            case 6: solveNegRecipRoots();    break;
+            case 7: return;
+        }
+    }
+}
 
 static void menuEquationsAndInequalities(void)
 {
@@ -2669,18 +3797,21 @@ static void runMainMenu(void)
         "Equations & Inequalities",
         "Absolute Value",
         "Number Theory",
+        "Theory of Equations",
         "Formulas & Reference",
         "Quit"
     };
     int sel;
     for (;;) {
-        sel = showMenu("MATH SOLVER CE", options, 5);
-        if (sel < 0 || sel == 4) break;
+        sel = showMenu("MATH SOLVER CE", options, 6);
+        if (sel < 0 || sel == 5) break;
         switch (sel) {
             case 0: menuEquationsAndInequalities(); break;
             case 1: menuAbsoluteValue();            break;
             case 2: menuNumberTheory(); break;
-            case 3: menuReference();    break;
+            case 3: menuTheoryOfEquations(); break;
+            case 4: menuReference();    break;
+            case 5: return;
         }
     }
 }
@@ -2701,7 +3832,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.45  ", COL_NAVY);
+    printLine("MathSolverCE  v2.5  ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
