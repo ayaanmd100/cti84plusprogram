@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.5
+ * MathSolverCE  v2.51
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -2550,17 +2550,21 @@ static void solveRemainderFactor(void)
         coeffs[i] = cv;
 
         /* If hasK and this is zero, ask if this is the k position */
-        if (hasK && fabs(cv) < MATH_EPS && kPos < 0) {
-            drawFooter("Is this the k term? 1=Yes 2=No");
-            blit();
-            uint8_t kChoice;
-            do { kChoice = waitForKey(); }
-            while (kChoice != sk_1 && kChoice != sk_2
-                   && kChoice != sk_Clear);
-            if (kChoice == sk_Clear) { gUserCancelled = true; return; }
-            if (kChoice == sk_1) kPos = i;
-        }
+    if (hasK) {
+    startScreen("REMAINDER/FACTOR THM", "[CLEAR] Back");
+    printSubheader("Which power holds k?");
+    printBlank();
+    double kPowVal = inputNumber("k is coeff of x^? = ");
+    CHECK_CANCEL;
+    int kPower = (int)round(kPowVal);
+    if (kPower < 0 || kPower > deg) {
+        printDivider();
+        printLine("Invalid power", COL_RED);
+        waitContinue();
+        return;
     }
+    kPos = deg - kPower;   /* convert power to index */
+}}
 
     if (hasK && kPos < 0) {
         printDivider();
@@ -2858,8 +2862,9 @@ static void solveMultipleFactors(void)
             }
         }
     } else {
-        printLine("Too many unknowns", COL_RED);
-        printLine("Need unknowns <= factors", COL_BLACK);
+        printLine("Too many unknowns here", COL_RED);
+        printLine("Use: Poly from Roots", COL_ORANGE);
+        printLine("Enter same roots there", COL_BLACK);
     }
 
     waitContinue();
@@ -3107,7 +3112,10 @@ static void solveRootCondition(void)
     do { uc = waitForKey(); }
     while (uc != sk_1 && uc != sk_2 && uc != sk_3 && uc != sk_Clear);
     if (uc == sk_Clear) { gUserCancelled = true; return; }
-    int unknownCoeff = (int)(uc - sk_0);  /* 1,2,3 */
+    int unknownCoeff = -1;
+    if      (uc == sk_1) unknownCoeff = 1;
+    else if (uc == sk_2) unknownCoeff = 2;
+    else if (uc == sk_3) unknownCoeff = 3;
 
     double A=0, B=0, C=0;
     if (unknownCoeff != 1) { A = inputNumber("A = "); CHECK_CANCEL; }
@@ -3130,7 +3138,13 @@ static void solveRootCondition(void)
     do { cond = waitForKey(); }
     while ((cond < sk_1 || cond > sk_6) && cond != sk_Clear);
     if (cond == sk_Clear) { gUserCancelled = true; return; }
-    int condType = (int)(cond - sk_0);
+    int condType = -1;
+    if      (cond == sk_1) condType = 1;
+    else if (cond == sk_2) condType = 2;
+    else if (cond == sk_3) condType = 3;
+    else if (cond == sk_4) condType = 4;
+    else if (cond == sk_5) condType = 5;
+    else if (cond == sk_6) condType = 6;
 
     double condVal = 0.0;
     if (condType != 5) {
@@ -3380,8 +3394,12 @@ static void solveCommonRoot(void)
     /* For degree 2/3 difference is degree (deg-1) at most */
     /* Find effective degree of diff */
     int effDeg = 0;
-    for (int i = 0; i <= deg; i++)
-        if (fabs(diff[i]) > MATH_EPS) effDeg = deg - i;
+    for (int i = 0; i <= deg; i++) {
+    if (fabs(diff[i]) > MATH_EPS) {
+        effDeg = deg - i;
+        break;
+    }
+}
 
     double x0 = 0.0;
     bool   found = false;
@@ -3832,7 +3850,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.5  ", COL_NAVY);
+    printLine("MathSolverCE  v2.51  ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
