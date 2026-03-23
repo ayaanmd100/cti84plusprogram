@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.54
+ * MathSolverCE  v2.55
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -3786,6 +3786,177 @@ static void solveNegRecipRoots(void)
     waitContinue();
 }
 
+/*
+ * Radical Simplifier — nth root of any positive integer.
+ *
+ * Algorithm:
+ *   1. Factorize X using the existing Pollard's rho engine.
+ *   2. For each prime p with exponent e in the factorization:
+ *        outside *= p ^ (e / n)      <- perfect nth power part
+ *        inside  *= p ^ (e % n)      <- leftover stays under radical
+ *   3. Result:  outside * nthroot(inside)
+ *
+ * Example n=2, X=12:
+ *   12 = 2^2 * 3^1
+ *   p=2: outside *= 2^(2/2)=2^1=2,  inside *= 2^(2%2)=2^0=1
+ *   p=3: outside *= 3^(3/2)=3^0=1,  inside *= 3^(3%1)=3^1=3
+ *   => 2 * sqrt(3)
+ *
+ * Example n=3, X=108:
+ *   108 = 2^2 * 3^3
+ *   p=2: outside*=2^(2/3)=1,  inside*=2^(2%3)=4
+ *   p=3: outside*=3^(3/3)=3,  inside*=3^(3%3)=1
+ *   => 3 * cbrt(4)
+ */
+static void solveRadicalSimplifier(void)
+{
+    RESET_CANCEL();
+    startScreen("RADICAL SIMPLIFIER", "[CLEAR] Back");
+    printSubheader("Simplify n-th root of X");
+    printBlank();
+
+    /* Root index n */
+    bool overflow = false;
+    uint32_t n = inputUInt32("Root index n = ", &overflow); CHECK_CANCEL;
+
+    if (overflow || n < 2) {
+        printDivider();
+        printLine("n must be >= 2", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    /* Radicand X */
+    uint32_t X = inputUInt32("Radicand X = ", &overflow); CHECK_CANCEL;
+
+    if (overflow) {
+        printDivider();
+        printLine("Too large (max 4294967295)", COL_RED);
+        waitContinue();
+        return;
+    }
+    if (X < 1) {
+        printDivider();
+        printLine("X must be >= 1", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    printDivider();
+
+    /* X = 1: trivially simplified */
+    if (X == 1) {
+        char lineBuf[52];
+        snprintf(lineBuf, sizeof(lineBuf), "%u-root(1) = 1", (unsigned)n);
+        printLine(lineBuf, COL_GREEN);
+        waitContinue();
+        return;
+    }
+
+    /* Factorize X */
+    if (!calculateFactorization(X)) {
+        printLine("X must be >= 2", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    /* Walk the factor list, extracting perfect nth powers */
+    uint32_t outside = 1;   /* coefficient outside the radical */
+    uint32_t inside  = 1;   /* radicand after simplification   */
+
+    int i = 0;
+    while (i < factorCount) {
+        uint32_t base = factorList[i];
+        int      exp  = 0;
+        while (i < factorCount && factorList[i] == base) { exp++; i++; }
+
+        int outsideExp = exp / (int)n;   /* goes outside */
+        int insideExp  = exp % (int)n;   /* stays inside */
+
+        /* outside *= base ^ outsideExp */
+        for (int k = 0; k < outsideExp; k++) {
+            /* Overflow guard */
+            if (outside > 0xFFFFFFFFUL / base) {
+                outside = 0;   /* sentinel: too large to display */
+                break;
+            }
+            outside *= base;
+        }
+
+        /* inside *= base ^ insideExp */
+        for (int k = 0; k < insideExp; k++) {
+            if (inside > 0xFFFFFFFFUL / base) {
+                inside = 0;
+                break;
+            }
+            inside *= base;
+        }
+    }
+
+    /* Build root label string */
+    char rootLabel[12];
+    if      (n == 2) snprintf(rootLabel, sizeof(rootLabel), "sqrt");
+    else if (n == 3) snprintf(rootLabel, sizeof(rootLabel), "cbrt");
+    else             snprintf(rootLabel, sizeof(rootLabel), "%u-root", (unsigned)n);
+
+    char lineBuf[52];
+
+    /* Show original */
+    snprintf(lineBuf, sizeof(lineBuf), "%s(%lu)", rootLabel, (unsigned long)X);
+    printLine(lineBuf, COL_BLACK);
+
+    /* Show simplified */
+    if (inside == 1) {
+        /* Perfect nth power — result is a whole number */
+        if (outside == 0) {
+            printLine("= (too large to display)", COL_ORANGE);
+        } else {
+            snprintf(lineBuf, sizeof(lineBuf), "= %lu  (exact)",
+                     (unsigned long)outside);
+            printLine(lineBuf, COL_GREEN);
+        }
+    } else if (outside == 1) {
+        /* Nothing came out — already fully simplified */
+        snprintf(lineBuf, sizeof(lineBuf), "= %s(%lu)  (simplified)",
+                 rootLabel, (unsigned long)inside);
+        printLine(lineBuf, COL_ORANGE);
+        printLine("Cannot simplify further", COL_BLACK);
+    } else {
+        /* General case: outside * nthroot(inside) */
+        if (outside == 0 || inside == 0) {
+            printLine("Overflow in simplification", COL_RED);
+        } else {
+            snprintf(lineBuf, sizeof(lineBuf), "= %lu * %s(%lu)",
+                     (unsigned long)outside, rootLabel, (unsigned long)inside);
+            printLine(lineBuf, COL_GREEN);
+        }
+    }
+
+    /* Show the full factorization breakdown for reference */
+    printBlank();
+    printLine("Factorization:", COL_ORANGE);
+
+    char factBuf[52];
+    factBuf[0] = '\0';
+    int fi = 0;
+    bool firstTerm = true;
+    while (fi < factorCount) {
+        uint32_t base = factorList[fi];
+        int      exp  = 0;
+        while (fi < factorCount && factorList[fi] == base) { exp++; fi++; }
+        char term[16];
+        if (exp == 1) snprintf(term, sizeof(term), "%lu", (unsigned long)base);
+        else          snprintf(term, sizeof(term), "%lu^%d", (unsigned long)base, exp);
+        if (!firstTerm)
+            strncat(factBuf, "*", sizeof(factBuf)-strlen(factBuf)-1);
+        strncat(factBuf, term, sizeof(factBuf)-strlen(factBuf)-1);
+        firstTerm = false;
+    }
+    printLine(factBuf, COL_BLACK);
+
+    waitContinue();
+}
+
 /* ═══════════════════════════════════════════════
    SECTION 3 — FORMULA REFERENCE
    ═══════════════════════════════════════════════ */
@@ -3993,11 +4164,12 @@ static void menuNumberTheory(void)
         "Perm. & Combination",
         "Binomial Theorem - Coeff",
         "Binomial Theorem - Pascal's Triangle",
+        "Radical Simplifier",
         "Base Conversion",
         "Back"
     };
     int sel;
-    while ((sel = showMenu("NUMBER THEORY", options, 8)) >= 0) {
+    while ((sel = showMenu("NUMBER THEORY", options, 9)) >= 0) {
         switch (sel) {
             case 0: solveFactorize(); break;
             case 1: solveGCD();       break;
@@ -4005,8 +4177,9 @@ static void menuNumberTheory(void)
             case 3: solvePermComb();  break;
             case 4: solveBinomialCoeff(); break;
             case 5: solvePascalTriangle();break;
-            case 6: menuBaseConversion();break;
-            case 7: return;
+            case 6: solveRadicalSimplifier();break;
+            case 7: menuBaseConversion();break;
+            case 8: return;
         }
     }
 }
@@ -4056,7 +4229,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.54 ", COL_NAVY);
+    printLine("MathSolverCE  v2.55 ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
