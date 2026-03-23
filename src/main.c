@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.53
+ * MathSolverCE  v2.54
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -305,6 +305,96 @@ static double inputNumber(const char *prompt)
             default:   break;
         }
         if (digitChar && inputLen < MAX_INPUT_LEN - 1) {
+            inputBuf[inputLen++] = digitChar;
+            inputBuf[inputLen]   = '\0';
+        }
+    }
+}
+
+/*
+ * Integer-only input — builds a uint32_t directly from
+ * digit keys with no floating-point conversion at any step.
+ * Sets gUserCancelled and returns 0 if CLEAR is pressed.
+ * Returns false (via out-param) if the entered value would
+ * overflow uint32_t (max 4294967295).
+ */
+static uint32_t inputUInt32(const char *prompt, bool *overflowed)
+{
+    char    inputBuf[11];   /* max 10 digits for uint32_t + NUL */
+    int     inputLen  = 0;
+    int     savedLine = gCurrentLine;
+    *overflowed = false;
+
+    inputBuf[0] = '\0';
+
+    for (;;) {
+        int rowY = BODY_TOP + savedLine * LINE_H;
+        gfx_SetColor(COL_WHITE);
+        gfx_FillRectangle_NoClip(0, rowY - 1, SCR_W, LINE_H + 2);
+
+        int promptW = gfx_GetStringWidth(prompt);
+        gfx_SetTextFGColor(COL_NAVY);
+        gfx_SetTextBGColor(COL_WHITE);
+        gfx_PrintStringXY(prompt, LMARGIN, rowY);
+
+        char displayBuf[14];
+        snprintf(displayBuf, sizeof(displayBuf), "%s_", inputBuf);
+        gfx_SetTextFGColor(COL_BLACK);
+        gfx_SetTextBGColor(COL_WHITE);
+        int valueX = LMARGIN + promptW + 4;
+        gfx_PrintStringXY(displayBuf, valueX, rowY);
+
+        gfx_SetColor(COL_GRAY);
+        gfx_FillRectangle_NoClip(valueX, rowY + 9,
+                                  SCR_W - valueX - LMARGIN, 1);
+        blit();
+
+        uint8_t key = waitForKey();
+
+        if (key == sk_Clear) {
+            gUserCancelled = true;
+            gCurrentLine   = savedLine + 1;
+            return 0;
+        }
+        if (key == sk_Enter) {
+            gCurrentLine = savedLine + 1;
+            if (inputLen == 0) return 0;
+
+            /* Parse digit-by-digit, checking overflow at every step */
+            uint32_t result = 0;
+            for (int i = 0; i < inputLen; i++) {
+                uint32_t digit = (uint32_t)(inputBuf[i] - '0');
+                /* Overflow check: result*10 + digit > 4294967295 */
+                if (result > (4294967295UL - digit) / 10UL) {
+                    *overflowed = true;
+                    return 0;
+                }
+                result = result * 10UL + digit;
+            }
+            return result;
+        }
+        if (key == sk_Del && inputLen > 0) {
+            inputBuf[--inputLen] = '\0';
+            continue;
+        }
+
+        /* Digit keys only — no decimal, no negative */
+        char digitChar = '\0';
+        switch (key) {
+            case sk_0: digitChar = '0'; break;
+            case sk_1: digitChar = '1'; break;
+            case sk_2: digitChar = '2'; break;
+            case sk_3: digitChar = '3'; break;
+            case sk_4: digitChar = '4'; break;
+            case sk_5: digitChar = '5'; break;
+            case sk_6: digitChar = '6'; break;
+            case sk_7: digitChar = '7'; break;
+            case sk_8: digitChar = '8'; break;
+            case sk_9: digitChar = '9'; break;
+            default:   break;
+        }
+        /* Max 10 digits (4294967295 is 10 digits) */
+        if (digitChar && inputLen < 10) {
             inputBuf[inputLen++] = digitChar;
             inputBuf[inputLen]   = '\0';
         }
@@ -1171,21 +1261,18 @@ static void solveFactorize(void)
 {
     RESET_CANCEL();
     startScreen("PRIME FACTORIZATION", "[CLEAR] Back");
-    printSubheader("(Max: 2147483647 - 32 bit signed integer limit.");
+    printSubheader("(Max: 4294967295");
     printBlank();
 
-    double inputVal = inputNumber("N = "); CHECK_CANCEL;
+    bool overflow = false;
+    uint32_t n = inputUInt32("N = ", &overflow); CHECK_CANCEL;
 
-/* Reject non-integers and values too large for uint32_t */
-if (inputVal != floor(inputVal) || inputVal < 2.0 || inputVal > 4294967295.0) {
-    printDivider();
-    printLine("Enter integer N >= 2", COL_RED);
-    printLine("Max: 4294967295", COL_BLACK);
-    waitContinue();
-    return;
-}
-
-uint32_t n = (uint32_t)inputVal;
+    if (overflow) {
+        printDivider();
+        printLine("Too large (max 4294967295)", COL_RED);
+        waitContinue();
+        return;
+    }
 
 if (!calculateFactorization(n)) {
     printLine("Enter N >= 2", COL_RED);
@@ -3254,6 +3341,9 @@ static void solveRootCondition(void)
         condVal = inputNumber(prompt); CHECK_CANCEL;
     }
 
+    startScreen("ROOT CONDITION", "[ENTER] Done");
+    printSubheader("Result");
+    printBlank();
     printDivider();
     char lineBuf[52], n1[20];
 
@@ -3966,7 +4056,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.53 ", COL_NAVY);
+    printLine("MathSolverCE  v2.54 ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();

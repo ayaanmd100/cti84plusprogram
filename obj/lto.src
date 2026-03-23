@@ -11104,7 +11104,7 @@ BB17_1:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	m, BB17_360
+	jp	m, BB17_359
 	push	de
 	pop	hl
 	ld	bc, 8
@@ -11146,83 +11146,62 @@ BB17_6:
 	push	hl
 	call	_inputNumber
 	pop	bc
+	call	__ftoull
 	ld	a, (_gUserCancelled)
 	bit	0, a
 	jp	nz, BB17_1
-	push	de
+	push	hl
+	pop	iy
+	ld	(ix - 3), bc
+	push	ix
+	ld	bc, -331
+	add	ix, bc
+	ld	(ix), de
+	pop	ix
+	ld	bc, (ix - 3)
+	call	__ulltof
+	ld	(ix - 3), bc
+	push	ix
+	ld	bc, -337
+	add	ix, bc
+	ld	(ix), hl
+	pop	ix
+	ld	a, e
+	or	a, a
+	sbc	hl, hl
+	push	hl
+	push	hl
+	ld	hl, 2
 	push	hl
 	ld	bc, -334
-	lea	iy, ix
-	add	iy, bc
-	ld	(iy), hl
-	ld	bc, -331
 	lea	hl, ix
 	add	hl, bc
-	ld	(hl), de
-	call	_floorf
-	ld	bc, -337
+	ld	(hl), iy
+	lea	hl, iy
+	ld	bc, -331
 	lea	iy, ix
 	add	iy, bc
-	ld	(iy), hl
-	push	ix
-	ld	bc, -340
-	add	ix, bc
-	ld	(ix), e
-	pop	ix
+	ld	de, (iy)
+	push	de
+	pop	iy
+	ld	bc, (ix - 3)
+	call	__llcmpu
 	pop	hl
 	pop	hl
+	pop	hl
+	jr	c, BB17_9
 	ld	hl, -8388608
 	ld	e, 79
-	ld	(ix - 3), de
-	push	ix
-	ld	de, -334
-	add	ix, de
-	ld	bc, (ix)
-	pop	ix
-	push	ix
-	ld	de, -331
-	add	ix, de
-	ld	iy, (ix)
-	pop	ix
-	ld	a, iyl
-	ld	de, (ix - 3)
-	call	__fcmp
-	jp	m, BB17_10
-	ld	bc, -334
-	lea	hl, ix
-	add	hl, bc
-	ld	hl, (hl)
-	ld	bc, -331
-	lea	iy, ix
-	add	iy, bc
-	ld	de, (iy)
-	ld	bc, 0
-	ld	a, 64
-	call	__fcmp
-	jp	m, BB17_10
-	ld	bc, -334
-	lea	hl, ix
-	add	hl, bc
-	ld	hl, (hl)
-	ld	bc, -331
-	lea	iy, ix
-	add	iy, bc
-	ld	de, (iy)
 	ld	(ix - 3), de
 	push	ix
 	ld	de, -337
 	add	ix, de
 	ld	bc, (ix)
 	pop	ix
-	push	ix
-	ld	de, -340
-	add	ix, de
-	ld	a, (ix)
-	pop	ix
 	ld	de, (ix - 3)
 	call	__fcmp
-	jp	z, BB17_243
-BB17_10:
+	jp	p, BB17_206
+BB17_9:
 	call	_printDivider
 	ld	hl, 5
 	push	hl
@@ -11234,8 +11213,8 @@ BB17_10:
 	ld	hl, 1
 	push	hl
 	ld	hl, _.str.121
-	jp	BB17_324
-BB17_11:
+	jp	BB17_320
+BB17_10:
 	xor	a, a
 	ld	(_gUserCancelled), a
 	ld	hl, _.str.21
@@ -11256,10 +11235,10 @@ BB17_11:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	p, BB17_13
+	jp	p, BB17_12
 	inc	de
 	ld	(_gCurrentLine), de
-BB17_13:
+BB17_12:
 	ld	hl, _.str.129
 	push	hl
 	call	_inputNumber
@@ -11282,13 +11261,13 @@ BB17_13:
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	jp	m, BB17_24
+	jp	m, BB17_23
 	push	bc
 	pop	hl
 	ld	de, 11
 	or	a, a
 	sbc	hl, de
-	jp	nc, BB17_204
+	jp	nc, BB17_203
 	ld	de, -295
 	lea	hl, ix
 	add	hl, de
@@ -11302,12 +11281,12 @@ BB17_13:
 	add	hl, de
 	ld	(hl), bc
 	ld	de, (ix - 3)
-BB17_17:
+BB17_16:
 	push	bc
 	pop	hl
 	or	a, a
 	sbc	hl, de
-	jp	z, BB17_227
+	jp	z, BB17_244
 	ld	bc, -331
 	lea	hl, ix
 	add	hl, bc
@@ -11387,9 +11366,9 @@ BB17_17:
 	ld	de, (ix)
 	pop	ix
 	ld	bc, (ix - 3)
-	jp	nz, BB17_17
-	jp	BB17_211
-BB17_20:
+	jp	nz, BB17_16
+	jp	BB17_226
+BB17_19:
 	xor	a, a
 	ld	(_gUserCancelled), a
 	ld	hl, _.str.21
@@ -11410,10 +11389,10 @@ BB17_20:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	p, BB17_22
+	jp	p, BB17_21
 	inc	de
 	ld	(_gCurrentLine), de
-BB17_22:
+BB17_21:
 	ld	hl, _.str.129
 	push	hl
 	call	_inputNumber
@@ -11436,14 +11415,14 @@ BB17_22:
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	jp	p, BB17_203
-BB17_24:
+	jp	p, BB17_202
+BB17_23:
 	call	_printDivider
 	ld	hl, 5
 	push	hl
 	ld	hl, _.str.130
-	jp	BB17_324
-BB17_25:
+	jp	BB17_320
+BB17_24:
 	xor	a, a
 	ld	(_gUserCancelled), a
 	ld	hl, _.str.21
@@ -11464,10 +11443,10 @@ BB17_25:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	p, BB17_27
+	jp	p, BB17_26
 	inc	de
 	ld	(_gCurrentLine), de
-BB17_27:
+BB17_26:
 	ld	hl, _.str.140
 	push	hl
 	call	_inputNumber
@@ -11562,7 +11541,7 @@ BB17_27:
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	jp	m, BB17_31
+	jp	m, BB17_30
 	ld	(ix - 3), bc
 	ld	bc, -334
 	lea	hl, ix
@@ -11572,13 +11551,13 @@ BB17_27:
 	sbc	hl, de
 	call	pe, __setflag
 	ld	bc, (ix - 3)
-	jp	p, BB17_259
-BB17_31:
+	jp	p, BB17_260
+BB17_30:
 	ld	hl, 5
 	push	hl
 	ld	hl, _.str.142
-	jp	BB17_324
-BB17_32:
+	jp	BB17_320
+BB17_31:
 	xor	a, a
 	ld	(_gUserCancelled), a
 	ld	hl, _.str.21
@@ -11599,10 +11578,10 @@ BB17_32:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	p, BB17_34
+	jp	p, BB17_33
 	inc	de
 	ld	(_gCurrentLine), de
-BB17_34:
+BB17_33:
 	ld	hl, _.str.151
 	push	hl
 	call	_inputNumber
@@ -11716,12 +11695,12 @@ BB17_34:
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	jp	p, BB17_286
+	jp	p, BB17_302
 	ld	hl, 5
 	push	hl
 	ld	hl, _.str.155
-	jp	BB17_324
-BB17_40:
+	jp	BB17_320
+BB17_39:
 	xor	a, a
 	ld	(_gUserCancelled), a
 	ld	hl, _.str.21
@@ -11742,10 +11721,10 @@ BB17_40:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	p, BB17_42
+	jp	p, BB17_41
 	inc	de
 	ld	(_gCurrentLine), de
-BB17_42:
+BB17_41:
 	ld	hl, _.str.169
 	push	hl
 	call	_inputNumber
@@ -11768,13 +11747,13 @@ BB17_42:
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	jp	p, BB17_205
+	jp	p, BB17_204
 	call	_printDivider
 	ld	hl, 5
 	push	hl
 	ld	hl, _.str.170
-	jp	BB17_324
-BB17_45:
+	jp	BB17_320
+BB17_44:
 	ld	bc, -301
 	lea	hl, ix
 	add	hl, bc
@@ -11782,7 +11761,7 @@ BB17_45:
 	ld	hl, ___const.menuBaseConversion.options
 	ld	bc, 15
 	ldir
-BB17_46:
+BB17_45:
 	ld	hl, 5
 	push	hl
 	ld	bc, -301
@@ -11810,14 +11789,14 @@ BB17_46:
 	ld	bc, 5
 	or	a, a
 	sbc	hl, bc
-	jr	nc, BB17_46
+	jr	nc, BB17_45
 	ld	hl, JTI17_1
 	add	hl, de
 	add	hl, de
 	add	hl, de
 	ld	hl, (hl)
 	jp	(hl)
-BB17_49:
+BB17_48:
 	xor	a, a
 	ld	(_gUserCancelled), a
 	ld	hl, _.str.21
@@ -11838,17 +11817,17 @@ BB17_49:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	p, BB17_51
+	jp	p, BB17_50
 	inc	de
 	ld	(_gCurrentLine), de
-BB17_51:
+BB17_50:
 	ld	hl, _.str.188
 	push	hl
 	call	_inputNumber
 	pop	bc
 	ld	a, (_gUserCancelled)
 	bit	0, a
-	jp	nz, BB17_46
+	jp	nz, BB17_45
 	push	de
 	push	hl
 	call	_roundf
@@ -11865,7 +11844,7 @@ BB17_51:
 	ld	de, -35
 	or	a, a
 	sbc	hl, de
-	jp	c, BB17_80
+	jp	c, BB17_79
 	ld	de, -331
 	lea	hl, ix
 	add	hl, de
@@ -11876,7 +11855,7 @@ BB17_51:
 	pop	bc
 	ld	a, (_gUserCancelled)
 	bit	0, a
-	jp	nz, BB17_46
+	jp	nz, BB17_45
 	push	de
 	push	hl
 	call	_roundf
@@ -11893,13 +11872,13 @@ BB17_51:
 	inc	de
 	or	a, a
 	sbc	hl, de
-	jp	c, BB17_91
+	jp	c, BB17_90
 	ld	iy, 0
 	ld	de, -337
 	lea	hl, ix
 	add	hl, de
 	ld	(hl), bc
-BB17_56:
+BB17_55:
 	lea	hl, iy
 	or	a, a
 	sbc	hl, bc
@@ -11918,7 +11897,7 @@ BB17_56:
 	ld	hl, (ix)
 	pop	ix
 	ld	bc, (ix - 3)
-	jp	z, BB17_125
+	jp	z, BB17_124
 	ld	(ix - 3), de
 	push	ix
 	ld	de, -340
@@ -11967,10 +11946,10 @@ BB17_56:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	p, BB17_59
+	jp	p, BB17_58
 	inc	de
 	ld	(_gCurrentLine), de
-BB17_59:
+BB17_58:
 	ld	bc, -295
 	lea	hl, ix
 	add	hl, bc
@@ -11986,14 +11965,14 @@ BB17_59:
 	add	hl, de
 	ld	bc, (hl)
 	ld	de, (ix - 3)
-BB17_60:
+BB17_59:
 	ld	bc, -340
 	lea	hl, ix
 	add	hl, bc
 	ld	hl, (hl)
 	or	a, a
 	sbc	hl, de
-	jp	z, BB17_64
+	jp	z, BB17_63
 	ld	bc, -334
 	lea	hl, ix
 	add	hl, bc
@@ -12006,9 +11985,9 @@ BB17_60:
 	sbc	hl, bc
 	call	pe, __setflag
 	ld	hl, 48
-	jp	m, BB17_63
+	jp	m, BB17_62
 	ld	hl, 55
-BB17_63:
+BB17_62:
 	push	de
 	pop	bc
 	inc	bc
@@ -12069,8 +12048,8 @@ BB17_63:
 	lea	iy, ix
 	add	iy, bc
 	ld	de, (iy)
-	jp	BB17_60
-BB17_64:
+	jp	BB17_59
+BB17_63:
 	ld	bc, -343
 	lea	hl, ix
 	add	hl, bc
@@ -12099,7 +12078,7 @@ BB17_64:
 	pop	bc
 	ld	a, (_gUserCancelled)
 	bit	0, a
-	jp	nz, BB17_46
+	jp	nz, BB17_45
 	push	de
 	push	hl
 	call	_roundf
@@ -12117,7 +12096,7 @@ BB17_64:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	m, BB17_133
+	jp	m, BB17_132
 	push	de
 	pop	hl
 	ld	(ix - 3), de
@@ -12129,7 +12108,7 @@ BB17_64:
 	sbc	hl, bc
 	call	pe, __setflag
 	ld	de, (ix - 3)
-	jp	p, BB17_133
+	jp	p, BB17_132
 	ld	bc, -340
 	lea	hl, ix
 	add	hl, bc
@@ -12155,8 +12134,8 @@ BB17_64:
 	add	ix, de
 	ld	bc, (ix)
 	pop	ix
-	jp	BB17_56
-BB17_68:
+	jp	BB17_55
+BB17_67:
 	xor	a, a
 	ld	(_gUserCancelled), a
 	ld	hl, _.str.21
@@ -12177,10 +12156,10 @@ BB17_68:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	p, BB17_70
+	jp	p, BB17_69
 	inc	de
 	ld	(_gCurrentLine), de
-BB17_70:
+BB17_69:
 	ld	hl, _.str.203
 	push	hl
 	call	_inputNumber
@@ -12196,14 +12175,14 @@ BB17_70:
 	pop	hl
 	ld	a, (_gUserCancelled)
 	bit	0, a
-	jp	nz, BB17_46
+	jp	nz, BB17_45
 	ld	hl, _.str.204
 	push	hl
 	call	_inputNumber
 	pop	bc
 	ld	a, (_gUserCancelled)
 	bit	0, a
-	jp	nz, BB17_46
+	jp	nz, BB17_45
 	push	de
 	push	hl
 	call	_roundf
@@ -12266,7 +12245,7 @@ BB17_70:
 	ld	de, -35
 	or	a, a
 	sbc	hl, de
-	jp	c, BB17_81
+	jp	c, BB17_80
 	ld	bc, -340
 	lea	hl, ix
 	add	hl, bc
@@ -12283,12 +12262,12 @@ BB17_70:
 	pop	ix
 	ld	de, (ix - 3)
 	call	__llcmpzero
-	jp	nz, BB17_92
+	jp	nz, BB17_91
 	ld	hl, 4
 	push	hl
 	ld	hl, _.str.205
-	jp	BB17_161
-BB17_75:
+	jp	BB17_160
+BB17_74:
 	xor	a, a
 	ld	(_gUserCancelled), a
 	ld	hl, _.str.21
@@ -12309,17 +12288,17 @@ BB17_75:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	p, BB17_77
+	jp	p, BB17_76
 	inc	de
 	ld	(_gCurrentLine), de
-BB17_77:
+BB17_76:
 	ld	hl, _.str.188
 	push	hl
 	call	_inputNumber
 	pop	bc
 	ld	a, (_gUserCancelled)
 	bit	0, a
-	jp	nz, BB17_46
+	jp	nz, BB17_45
 	push	de
 	push	hl
 	call	_roundf
@@ -12341,7 +12320,7 @@ BB17_77:
 	pop	bc
 	ld	a, (_gUserCancelled)
 	bit	0, a
-	jp	nz, BB17_46
+	jp	nz, BB17_45
 	push	de
 	push	hl
 	call	_roundf
@@ -12363,15 +12342,15 @@ BB17_77:
 	or	a, a
 	sbc	hl, de
 	ld	bc, (ix - 3)
-	jp	nc, BB17_90
-BB17_80:
+	jp	nc, BB17_89
+BB17_79:
 	call	_printDivider
-BB17_81:
+BB17_80:
 	ld	hl, 5
 	push	hl
 	ld	hl, _.str.189
-	jp	BB17_161
-BB17_82:
+	jp	BB17_160
+BB17_81:
 	xor	a, a
 	ld	(_gUserCancelled), a
 	ld	hl, _.str.21
@@ -12392,17 +12371,17 @@ BB17_82:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	p, BB17_84
+	jp	p, BB17_83
 	inc	de
 	ld	(_gCurrentLine), de
-BB17_84:
+BB17_83:
 	ld	hl, _.str.216
 	push	hl
 	call	_inputNumber
 	pop	bc
 	ld	a, (_gUserCancelled)
 	bit	0, a
-	jp	nz, BB17_46
+	jp	nz, BB17_45
 	push	de
 	push	hl
 	call	_roundf
@@ -12418,13 +12397,13 @@ BB17_84:
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	jp	p, BB17_87
+	jp	p, BB17_86
 	call	_printDivider
 	ld	hl, 5
 	push	hl
 	ld	hl, _.str.217
-	jp	BB17_161
-BB17_87:
+	jp	BB17_160
+BB17_86:
 	ld	de, -331
 	lea	hl, ix
 	add	hl, de
@@ -12435,7 +12414,7 @@ BB17_87:
 	pop	bc
 	ld	a, (_gUserCancelled)
 	bit	0, a
-	jp	nz, BB17_46
+	jp	nz, BB17_45
 	push	de
 	push	hl
 	call	_roundf
@@ -12452,14 +12431,14 @@ BB17_87:
 	inc	de
 	or	a, a
 	sbc	hl, de
-	jp	nc, BB17_97
-BB17_89:
+	jp	nc, BB17_96
+BB17_88:
 	call	_printDivider
 	ld	hl, 5
 	push	hl
 	ld	hl, _.str.219
-	jp	BB17_161
-BB17_90:
+	jp	BB17_160
+BB17_89:
 	ld	de, -334
 	lea	hl, ix
 	add	hl, de
@@ -12471,14 +12450,14 @@ BB17_90:
 	inc	de
 	or	a, a
 	sbc	hl, de
-	jp	nc, BB17_109
-BB17_91:
+	jp	nc, BB17_108
+BB17_90:
 	call	_printDivider
 	ld	hl, 5
 	push	hl
 	ld	hl, _.str.191
-	jp	BB17_161
-BB17_92:
+	jp	BB17_160
+BB17_91:
 	ld	bc, -307
 	lea	hl, ix
 	add	hl, bc
@@ -12505,7 +12484,7 @@ BB17_92:
 	pop	ix
 	ld	c, l
 	ld	b, h
-BB17_93:
+BB17_92:
 	ld	(ix - 3), bc
 	ld	bc, -349
 	lea	hl, ix
@@ -12522,7 +12501,7 @@ BB17_93:
 	pop	ix
 	ld	de, (ix - 3)
 	call	__llcmpzero
-	jp	z, BB17_122
+	jp	z, BB17_121
 	or	a, a
 	sbc	hl, hl
 	push	hl
@@ -12616,9 +12595,9 @@ BB17_93:
 	sbc	hl, bc
 	call	pe, __setflag
 	ld	a, 48
-	jp	m, BB17_96
+	jp	m, BB17_95
 	ld	a, 55
-BB17_96:
+BB17_95:
 	add	a, e
 	ld	bc, -349
 	lea	hl, ix
@@ -12672,8 +12651,8 @@ BB17_96:
 	ld	bc, (ix)
 	pop	ix
 	ld	de, (ix - 3)
-	jp	BB17_93
-BB17_97:
+	jp	BB17_92
+BB17_96:
 	or	a, a
 	sbc	hl, hl
 	push	hl
@@ -12687,13 +12666,13 @@ BB17_97:
 	lea	hl, ix
 	add	hl, de
 	ld	(hl), bc
-BB17_98:
+BB17_97:
 	ld	de, (ix - 3)
 	push	de
 	pop	hl
 	or	a, a
 	sbc	hl, bc
-	jp	z, BB17_164
+	jp	z, BB17_163
 	ld	bc, -334
 	lea	hl, ix
 	add	hl, bc
@@ -12745,23 +12724,23 @@ BB17_98:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	p, BB17_101
+	jp	p, BB17_100
 	inc	de
 	ld	(_gCurrentLine), de
-BB17_101:
+BB17_100:
 	ld	bc, -325
 	lea	hl, ix
 	add	hl, bc
 	ld	iy, (hl)
 	ld	de, 0
-BB17_102:
+BB17_101:
 	ld	bc, -334
 	lea	hl, ix
 	add	hl, bc
 	ld	hl, (hl)
 	or	a, a
 	sbc	hl, de
-	jr	z, BB17_104
+	jr	z, BB17_103
 	push	de
 	pop	hl
 	inc	hl
@@ -12812,8 +12791,8 @@ BB17_102:
 	lea	hl, ix
 	add	hl, bc
 	ld	de, (hl)
-	jr	BB17_102
-BB17_104:
+	jr	BB17_101
+BB17_103:
 	ld	bc, -343
 	lea	hl, ix
 	add	hl, bc
@@ -12842,7 +12821,7 @@ BB17_104:
 	pop	bc
 	ld	a, (_gUserCancelled)
 	bit	0, a
-	jp	nz, BB17_163
+	jp	nz, BB17_162
 	push	de
 	push	hl
 	call	_roundf
@@ -12876,7 +12855,7 @@ BB17_104:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	m, BB17_162
+	jp	m, BB17_161
 	push	de
 	pop	hl
 	ld	(ix - 3), de
@@ -12888,12 +12867,12 @@ BB17_104:
 	sbc	hl, bc
 	call	pe, __setflag
 	ld	de, (ix - 3)
-	jp	m, BB17_108
+	jp	m, BB17_107
 	ld	bc, -340
 	lea	hl, ix
 	add	hl, bc
 	ld	(hl), de
-BB17_108:
+BB17_107:
 	ld	bc, -343
 	lea	hl, ix
 	add	hl, bc
@@ -12903,10 +12882,10 @@ BB17_108:
 	lea	iy, ix
 	add	iy, de
 	ld	bc, (iy)
-	jp	BB17_98
-BB17_109:
+	jp	BB17_97
+BB17_108:
 	ld	bc, 0
-BB17_110:
+BB17_109:
 	push	bc
 	pop	hl
 	ld	(ix - 3), bc
@@ -12918,7 +12897,7 @@ BB17_110:
 	or	a, a
 	sbc	hl, de
 	ld	bc, (ix - 3)
-	jp	z, BB17_129
+	jp	z, BB17_128
 	ld	(ix - 3), de
 	ld	de, -340
 	lea	hl, ix
@@ -12970,10 +12949,10 @@ BB17_110:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	p, BB17_113
+	jp	p, BB17_112
 	inc	de
 	ld	(_gCurrentLine), de
-BB17_113:
+BB17_112:
 	ld	bc, -319
 	lea	hl, ix
 	add	hl, bc
@@ -12989,14 +12968,14 @@ BB17_113:
 	add	hl, de
 	ld	bc, (hl)
 	ld	de, (ix - 3)
-BB17_114:
+BB17_113:
 	ld	bc, -340
 	lea	hl, ix
 	add	hl, bc
 	ld	hl, (hl)
 	or	a, a
 	sbc	hl, de
-	jp	z, BB17_118
+	jp	z, BB17_117
 	ld	bc, -337
 	lea	hl, ix
 	add	hl, bc
@@ -13009,9 +12988,9 @@ BB17_114:
 	sbc	hl, bc
 	call	pe, __setflag
 	ld	hl, 48
-	jp	m, BB17_117
+	jp	m, BB17_116
 	ld	hl, 55
-BB17_117:
+BB17_116:
 	push	de
 	pop	bc
 	inc	bc
@@ -13072,8 +13051,8 @@ BB17_117:
 	lea	iy, ix
 	add	iy, bc
 	ld	de, (iy)
-	jp	BB17_114
-BB17_118:
+	jp	BB17_113
+BB17_117:
 	ld	bc, -343
 	lea	hl, ix
 	add	hl, bc
@@ -13102,7 +13081,7 @@ BB17_118:
 	pop	bc
 	ld	a, (_gUserCancelled)
 	bit	0, a
-	jp	nz, BB17_46
+	jp	nz, BB17_45
 	push	de
 	push	hl
 	call	_roundf
@@ -13120,7 +13099,7 @@ BB17_118:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	m, BB17_133
+	jp	m, BB17_132
 	push	de
 	pop	hl
 	ld	(ix - 3), de
@@ -13132,7 +13111,7 @@ BB17_118:
 	sbc	hl, bc
 	call	pe, __setflag
 	ld	de, (ix - 3)
-	jp	p, BB17_133
+	jp	p, BB17_132
 	ld	bc, -340
 	lea	hl, ix
 	add	hl, bc
@@ -13158,8 +13137,8 @@ BB17_118:
 	add	ix, de
 	ld	iy, (ix)
 	pop	ix
-	jp	BB17_110
-BB17_122:
+	jp	BB17_109
+BB17_121:
 	ld	bc, -331
 	lea	hl, ix
 	add	hl, bc
@@ -13181,9 +13160,9 @@ BB17_122:
 	ld	de, (ix)
 	pop	ix
 	ld	bc, (ix - 3)
-	jp	m, BB17_124
+	jp	m, BB17_123
 	ld	hl, _.str.207
-BB17_124:
+BB17_123:
 	ld	(ix - 3), de
 	ld	de, -295
 	lea	iy, ix
@@ -13269,8 +13248,8 @@ BB17_124:
 	ld	hl, 4
 	push	hl
 	ld	bc, -304
-	jp	BB17_160
-BB17_125:
+	jp	BB17_159
+BB17_124:
 	ld	de, -295
 	lea	hl, ix
 	add	hl, de
@@ -13296,7 +13275,7 @@ BB17_125:
 	pop	ix
 	ex	de, hl
 	ld	bc, (ix - 3)
-BB17_126:
+BB17_125:
 	ld	(ix - 3), de
 	ld	de, -349
 	lea	hl, ix
@@ -13313,7 +13292,7 @@ BB17_126:
 	or	a, a
 	sbc	hl, de
 	ld	bc, (ix - 3)
-	jp	z, BB17_134
+	jp	z, BB17_133
 	ld	bc, -331
 	lea	hl, ix
 	add	hl, bc
@@ -13393,7 +13372,7 @@ BB17_126:
 	pop	hl
 	pop	hl
 	pop	hl
-	jp	c, BB17_147
+	jp	c, BB17_146
 	ld	bc, -352
 	lea	hl, ix
 	add	hl, bc
@@ -13492,8 +13471,8 @@ BB17_126:
 	ld	bc, (ix)
 	pop	ix
 	ld	de, (ix - 3)
-	jp	BB17_126
-BB17_129:
+	jp	BB17_125
+BB17_128:
 	ld	bc, -319
 	lea	hl, ix
 	add	hl, bc
@@ -13518,7 +13497,7 @@ BB17_129:
 	pop	ix
 	push	hl
 	pop	bc
-BB17_130:
+BB17_129:
 	ld	de, -349
 	lea	hl, ix
 	add	hl, de
@@ -13540,7 +13519,7 @@ BB17_130:
 	or	a, a
 	sbc	hl, bc
 	ld	de, (ix - 3)
-	jp	z, BB17_135
+	jp	z, BB17_134
 	ld	bc, -331
 	lea	hl, ix
 	add	hl, bc
@@ -13620,7 +13599,7 @@ BB17_130:
 	pop	hl
 	pop	hl
 	pop	hl
-	jp	c, BB17_136
+	jp	c, BB17_135
 	ld	bc, -352
 	lea	hl, ix
 	add	hl, bc
@@ -13712,8 +13691,8 @@ BB17_130:
 	pop	ix
 	lea	iy, iy + 3
 	ld	de, (ix - 3)
-	jp	BB17_130
-BB17_133:
+	jp	BB17_129
+BB17_132:
 	call	_printDivider
 	ld	bc, -331
 	lea	hl, ix
@@ -13736,19 +13715,19 @@ BB17_133:
 	pop	hl
 	pop	hl
 	ld	hl, 5
-	jp	BB17_159
-BB17_134:
+	jp	BB17_158
+BB17_133:
 	ld	de, -334
 	lea	hl, ix
 	add	hl, de
 	ld	(hl), bc
-	jp	BB17_148
-BB17_135:
+	jp	BB17_147
+BB17_134:
 	ld	bc, -346
 	lea	hl, ix
 	add	hl, bc
 	ld	(hl), de
-BB17_136:
+BB17_135:
 	ld	hl, _.str.21
 	push	hl
 	ld	hl, _.str.210
@@ -13767,17 +13746,17 @@ BB17_136:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	p, BB17_138
+	jp	p, BB17_137
 	inc	de
 	ld	(_gCurrentLine), de
-BB17_138:
+BB17_137:
 	ld	hl, _.str.204
 	push	hl
 	call	_inputNumber
 	pop	bc
 	ld	a, (_gUserCancelled)
 	bit	0, a
-	jp	nz, BB17_46
+	jp	nz, BB17_45
 	push	de
 	push	hl
 	call	_roundf
@@ -13800,7 +13779,7 @@ BB17_138:
 	ld	de, -35
 	or	a, a
 	sbc	hl, de
-	jp	c, BB17_80
+	jp	c, BB17_79
 	ld	bc, -307
 	lea	hl, ix
 	add	hl, bc
@@ -13823,14 +13802,14 @@ BB17_138:
 	pop	ix
 	ld	de, (ix - 3)
 	call	__llcmpzero
-	jp	nz, BB17_178
+	jp	nz, BB17_177
 	ld	bc, -307
 	lea	hl, ix
 	add	hl, bc
 	ld	iy, (hl)
 	ld	(iy + 76), 48
 	ld	(iy + 77), 0
-BB17_142:
+BB17_141:
 	ld	bc, -307
 	lea	hl, ix
 	add	hl, bc
@@ -13850,7 +13829,7 @@ BB17_142:
 	add	ix, bc
 	ld	(ix), de
 	pop	ix
-BB17_143:
+BB17_142:
 	ld	bc, -355
 	lea	iy, ix
 	add	iy, bc
@@ -13858,7 +13837,7 @@ BB17_143:
 	add	hl, bc
 	or	a, a
 	sbc	hl, bc
-	jp	z, BB17_182
+	jp	z, BB17_181
 	ld	bc, -349
 	lea	hl, ix
 	add	hl, bc
@@ -13871,9 +13850,9 @@ BB17_143:
 	sbc	hl, bc
 	call	pe, __setflag
 	ld	a, 48
-	jp	m, BB17_146
+	jp	m, BB17_145
 	ld	a, 55
-BB17_146:
+BB17_145:
 	add	a, e
 	ld	(ix - 58), a
 	ld	(ix - 57), 0
@@ -13914,13 +13893,13 @@ BB17_146:
 	add	iy, bc
 	ld	hl, (iy)
 	dec	hl
-	jp	BB17_143
-BB17_147:
+	jp	BB17_142
+BB17_146:
 	ld	de, -337
 	lea	hl, ix
 	add	hl, de
 	ld	bc, (hl)
-BB17_148:
+BB17_147:
 	ld	(ix - 110), 0
 	push	bc
 	pop	hl
@@ -13928,11 +13907,11 @@ BB17_148:
 	lea	iy, ix
 	add	iy, bc
 	ld	iy, (iy)
-BB17_149:
+BB17_148:
 	add	hl, bc
 	or	a, a
 	sbc	hl, bc
-	jp	z, BB17_153
+	jp	z, BB17_152
 	push	ix
 	ld	bc, -349
 	add	ix, bc
@@ -13956,9 +13935,9 @@ BB17_149:
 	add	hl, bc
 	pop	af
 	ld	hl, (hl)
-	jp	m, BB17_152
+	jp	m, BB17_151
 	ld	a, 55
-BB17_152:
+BB17_151:
 	add	a, e
 	ld	bc, -307
 	lea	iy, ix
@@ -14000,8 +13979,8 @@ BB17_152:
 	ld	hl, (ix)
 	pop	ix
 	dec	hl
-	jp	BB17_149
-BB17_153:
+	jp	BB17_148
+BB17_152:
 	ld	hl, _.str.172
 	push	hl
 	ld	hl, _.str.186
@@ -14020,10 +13999,10 @@ BB17_153:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	p, BB17_155
+	jp	p, BB17_154
 	inc	de
 	ld	(_gCurrentLine), de
-BB17_155:
+BB17_154:
 	ld	bc, -331
 	lea	hl, ix
 	add	hl, bc
@@ -14070,12 +14049,12 @@ BB17_155:
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	jp	p, BB17_157
+	jp	p, BB17_156
 	ld	hl, 5
 	push	hl
 	ld	hl, _.str.199
-	jr	BB17_161
-BB17_157:
+	jr	BB17_160
+BB17_156:
 	ld	bc, -346
 	lea	hl, ix
 	add	hl, bc
@@ -14092,7 +14071,7 @@ BB17_157:
 	ld	hl, (hl)
 	push	hl
 	ld	hl, _.str.200
-BB17_158:
+BB17_157:
 	push	hl
 	ld	hl, 52
 	push	hl
@@ -14109,21 +14088,21 @@ BB17_158:
 	pop	hl
 	pop	hl
 	ld	hl, 4
-BB17_159:
+BB17_158:
 	push	hl
 	ld	bc, -298
-BB17_160:
+BB17_159:
 	lea	hl, ix
 	add	hl, bc
 	ld	hl, (hl)
-BB17_161:
+BB17_160:
 	push	hl
 	call	_printLine
 	pop	hl
 	pop	hl
 	call	_waitContinue
-	jp	BB17_46
-BB17_162:
+	jp	BB17_45
+BB17_161:
 	call	_printDivider
 	ld	hl, 5
 	push	hl
@@ -14133,7 +14112,7 @@ BB17_162:
 	pop	hl
 	pop	hl
 	call	_waitContinue
-BB17_163:
+BB17_162:
 	ld	bc, -334
 	lea	hl, ix
 	add	hl, bc
@@ -14145,15 +14124,15 @@ BB17_163:
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	jp	m, BB17_46
-BB17_164:
+	jp	m, BB17_45
+BB17_163:
 	ld	hl, _.str.224
 	push	hl
 	call	_inputNumber
 	pop	bc
 	ld	a, (_gUserCancelled)
 	bit	0, a
-	jp	nz, BB17_46
+	jp	nz, BB17_45
 	push	de
 	push	hl
 	call	_roundf
@@ -14170,7 +14149,7 @@ BB17_164:
 	inc	de
 	or	a, a
 	sbc	hl, de
-	jp	c, BB17_89
+	jp	c, BB17_88
 	or	a, a
 	sbc	hl, hl
 	push	hl
@@ -14186,14 +14165,14 @@ BB17_164:
 	add	ix, de
 	ld	(ix), bc
 	pop	ix
-BB17_167:
+BB17_166:
 	ld	de, -343
 	lea	iy, ix
 	add	iy, de
 	ld	(iy), hl
 	or	a, a
 	sbc	hl, bc
-	jp	z, BB17_187
+	jp	z, BB17_186
 	ld	de, -343
 	lea	hl, ix
 	add	hl, de
@@ -14241,16 +14220,16 @@ BB17_167:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	p, BB17_170
+	jp	p, BB17_169
 	inc	de
 	ld	(_gCurrentLine), de
-BB17_170:
+BB17_169:
 	ld	de, -316
 	lea	hl, ix
 	add	hl, de
 	ld	bc, (hl)
 	ld	de, 0
-BB17_171:
+BB17_170:
 	ld	(ix - 3), bc
 	ld	bc, -343
 	lea	hl, ix
@@ -14259,7 +14238,7 @@ BB17_171:
 	or	a, a
 	sbc	hl, de
 	ld	bc, (ix - 3)
-	jp	z, BB17_173
+	jp	z, BB17_172
 	push	de
 	pop	hl
 	inc	hl
@@ -14317,8 +14296,8 @@ BB17_171:
 	add	iy, bc
 	ld	de, (iy)
 	ld	bc, (ix - 3)
-	jp	BB17_171
-BB17_173:
+	jp	BB17_170
+BB17_172:
 	ld	bc, -349
 	lea	hl, ix
 	add	hl, bc
@@ -14347,7 +14326,7 @@ BB17_173:
 	pop	bc
 	ld	a, (_gUserCancelled)
 	bit	0, a
-	jp	nz, BB17_186
+	jp	nz, BB17_185
 	push	de
 	push	hl
 	call	_roundf
@@ -14381,7 +14360,7 @@ BB17_173:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	m, BB17_185
+	jp	m, BB17_184
 	push	de
 	pop	hl
 	ld	(ix - 3), de
@@ -14393,12 +14372,12 @@ BB17_173:
 	sbc	hl, bc
 	call	pe, __setflag
 	ld	de, (ix - 3)
-	jp	m, BB17_177
+	jp	m, BB17_176
 	ld	bc, -334
 	lea	hl, ix
 	add	hl, bc
 	ld	(hl), de
-BB17_177:
+BB17_176:
 	ld	de, -349
 	lea	hl, ix
 	add	hl, de
@@ -14407,10 +14386,10 @@ BB17_177:
 	lea	iy, ix
 	add	iy, de
 	ld	bc, (iy)
-	jp	BB17_167
-BB17_178:
+	jp	BB17_166
+BB17_177:
 	call	__llcmpzero
-	jp	z, BB17_142
+	jp	z, BB17_141
 	ld	iy, 0
 	push	iy
 	push	iy
@@ -14535,9 +14514,9 @@ BB17_178:
 	sbc	hl, de
 	call	pe, __setflag
 	ld	a, 48
-	jp	m, BB17_181
+	jp	m, BB17_180
 	ld	a, 55
-BB17_181:
+BB17_180:
 	add	a, c
 	ld	bc, -307
 	lea	hl, ix
@@ -14560,8 +14539,8 @@ BB17_181:
 	ld	bc, (ix)
 	pop	ix
 	ld	de, (ix - 3)
-	jp	BB17_178
-BB17_182:
+	jp	BB17_177
+BB17_181:
 	call	_printDivider
 	ld	bc, -331
 	lea	hl, ix
@@ -14609,12 +14588,12 @@ BB17_182:
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	jp	p, BB17_184
+	jp	p, BB17_183
 	ld	hl, 5
 	push	hl
 	ld	hl, _.str.213
-	jp	BB17_161
-BB17_184:
+	jp	BB17_160
+BB17_183:
 	ld	bc, -343
 	lea	hl, ix
 	add	hl, bc
@@ -14684,8 +14663,8 @@ BB17_184:
 	ld	hl, 4
 	push	hl
 	ld	bc, -295
-	jp	BB17_160
-BB17_185:
+	jp	BB17_159
+BB17_184:
 	call	_printDivider
 	ld	hl, 5
 	push	hl
@@ -14695,7 +14674,7 @@ BB17_185:
 	pop	hl
 	pop	hl
 	call	_waitContinue
-BB17_186:
+BB17_185:
 	ld	bc, -343
 	lea	hl, ix
 	add	hl, bc
@@ -14707,8 +14686,8 @@ BB17_186:
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	jp	m, BB17_46
-BB17_187:
+	jp	m, BB17_45
+BB17_186:
 	ld	bc, -334
 	lea	hl, ix
 	add	hl, bc
@@ -14717,13 +14696,13 @@ BB17_187:
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	jp	p, BB17_189
+	jp	p, BB17_188
 	ld	hl, 1
 	ld	bc, -334
 	lea	iy, ix
 	add	iy, bc
 	ld	(iy), hl
-BB17_189:
+BB17_188:
 	ld	hl, _.str.172
 	push	hl
 	ld	hl, _.str.214
@@ -14742,10 +14721,10 @@ BB17_189:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	p, BB17_191
+	jp	p, BB17_190
 	inc	de
 	ld	(_gCurrentLine), de
-BB17_191:
+BB17_190:
 	ld	de, -334
 	lea	hl, ix
 	add	hl, de
@@ -14761,13 +14740,13 @@ BB17_191:
 	add	hl, de
 	pop	af
 	ld	(hl), bc
-	jr	nc, BB17_193
+	jr	nc, BB17_192
 	ld	hl, 1000
 	ld	bc, -343
 	lea	iy, ix
 	add	iy, bc
 	ld	(iy), hl
-BB17_193:
+BB17_192:
 	ld	bc, -331
 	lea	hl, ix
 	add	hl, bc
@@ -14776,7 +14755,7 @@ BB17_193:
 	lea	iy, ix
 	add	iy, bc
 	ld	(iy), hl
-BB17_194:
+BB17_193:
 	ld	bc, -334
 	lea	hl, ix
 	add	hl, bc
@@ -14787,7 +14766,7 @@ BB17_194:
 	ld	hl, (iy)
 	or	a, a
 	sbc	hl, de
-	jp	z, BB17_202
+	jp	z, BB17_201
 	push	de
 	pop	hl
 	inc	hl
@@ -14813,7 +14792,7 @@ BB17_194:
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	jp	p, BB17_194
+	jp	p, BB17_193
 	push	de
 	ld	bc, -337
 	lea	hl, ix
@@ -14898,7 +14877,7 @@ BB17_194:
 	pop	ix
 	ld	de, (ix - 3)
 	call	__llcmpzero
-	jr	nz, BB17_198
+	jr	nz, BB17_197
 	ld	bc, -337
 	lea	hl, ix
 	add	hl, bc
@@ -14907,8 +14886,8 @@ BB17_194:
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	jp	p, BB17_194
-BB17_198:
+	jp	p, BB17_193
+BB17_197:
 	ld	bc, -361
 	lea	hl, ix
 	add	hl, bc
@@ -14921,7 +14900,7 @@ BB17_198:
 	ld	c, iyl
 	ld	b, iyh
 	call	__llcmpzero
-	jr	nz, BB17_200
+	jr	nz, BB17_199
 	ld	bc, -346
 	lea	hl, ix
 	add	hl, bc
@@ -14930,8 +14909,8 @@ BB17_198:
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	jp	p, BB17_194
-BB17_200:
+	jp	p, BB17_193
+BB17_199:
 	push	iy
 	ld	bc, -364
 	lea	hl, ix
@@ -14962,7 +14941,7 @@ BB17_200:
 	pop	hl
 	pop	hl
 	pop	hl
-	jp	nz, BB17_194
+	jp	nz, BB17_193
 	ld	bc, -331
 	lea	hl, ix
 	add	hl, bc
@@ -15044,8 +15023,8 @@ BB17_200:
 	ld	hl, (hl)
 	push	hl
 	ld	hl, _.str.228
-	jp	BB17_158
-BB17_202:
+	jp	BB17_157
+BB17_201:
 	ld	hl, 5
 	push	hl
 	ld	hl, _.str.229
@@ -15056,33 +15035,329 @@ BB17_202:
 	ld	hl, 1
 	push	hl
 	ld	hl, _.str.230
-	jp	BB17_161
-BB17_203:
+	jp	BB17_160
+BB17_202:
 	push	bc
 	pop	hl
 	ld	de, 11
 	or	a, a
 	sbc	hl, de
-	jr	c, BB17_207
-BB17_204:
+	jp	c, BB17_222
+BB17_203:
 	call	_printDivider
 	ld	hl, 5
 	push	hl
 	ld	hl, _.str.131
-	jp	BB17_324
-BB17_205:
+	jp	BB17_320
+BB17_204:
 	push	bc
 	pop	hl
 	ld	de, 61
 	or	a, a
 	sbc	hl, de
-	jp	c, BB17_212
+	jp	c, BB17_227
 	call	_printDivider
 	ld	hl, 5
 	push	hl
 	ld	hl, _.str.171
-	jp	BB17_324
-BB17_207:
+	jp	BB17_320
+BB17_206:
+	ld	e, iyl
+	ld	bc, -334
+	lea	hl, ix
+	add	hl, bc
+	ld	iy, (hl)
+	lea	hl, iy
+	ld	bc, 2
+	xor	a, a
+	call	__lcmpu
+	ld	(ix - 3), bc
+	push	ix
+	ld	bc, -337
+	push	af
+	add	ix, bc
+	pop	af
+	ld	(ix), de
+	pop	ix
+	ld	bc, (ix - 3)
+	jp	nc, BB17_262
+	ld	hl, 5
+	push	hl
+	ld	hl, _.str.122
+	push	hl
+	call	_printLine
+	pop	hl
+	pop	hl
+	ld	de, -337
+	lea	hl, ix
+	add	hl, de
+	ld	bc, (hl)
+BB17_208:
+	ld	de, -307
+	lea	hl, ix
+	add	hl, de
+	ld	iy, (hl)
+	ld	(iy + 76), 0
+	ld	iy, 0
+	ld	a, 1
+BB17_209:
+	ld	de, (_factorCount)
+	lea	hl, iy
+	ld	(ix - 3), bc
+	push	ix
+	ld	bc, -340
+	add	ix, bc
+	ld	(ix), de
+	pop	ix
+	or	a, a
+	sbc	hl, de
+	call	pe, __setflag
+	ld	bc, (ix - 3)
+	jp	p, BB17_242
+	ld	de, -346
+	lea	hl, ix
+	add	hl, de
+	ld	(hl), a
+	lea	hl, iy
+	ld	c, 2
+	call	__ishl
+	push	hl
+	pop	de
+	ld	(ix - 3), bc
+	push	ix
+	ld	bc, -331
+	add	ix, bc
+	ld	(ix), iy
+	pop	ix
+	ld	iy, _factorList
+	add	iy, de
+	ld	hl, (iy)
+	push	ix
+	ld	de, -343
+	add	ix, de
+	ld	(ix), hl
+	pop	ix
+	ld	a, (iy + 3)
+	ld	bc, (ix - 3)
+	ld	de, -340
+	lea	hl, ix
+	add	hl, de
+	ld	bc, (hl)
+	push	bc
+	pop	hl
+	ld	(ix - 3), bc
+	push	ix
+	ld	bc, -331
+	add	ix, bc
+	ld	de, (ix)
+	pop	ix
+	or	a, a
+	sbc	hl, de
+	push	ix
+	ld	de, -349
+	add	ix, de
+	ld	(ix), hl
+	pop	ix
+	push	ix
+	ld	de, -331
+	add	ix, de
+	ld	hl, (ix)
+	pop	ix
+	ld	bc, (ix - 3)
+	or	a, a
+	sbc	hl, bc
+	push	hl
+	pop	de
+	or	a, a
+	sbc	hl, hl
+	push	hl
+	pop	bc
+	ld	(ix - 3), bc
+	ld	bc, -352
+	lea	hl, ix
+	add	hl, bc
+	ld	(hl), de
+BB17_211:
+	ld	bc, (ix - 3)
+	ex	de, hl
+	add	hl, bc
+	add	hl, bc
+	or	a, a
+	sbc	hl, bc
+	jr	z, BB17_214
+	ld	de, -355
+	lea	hl, ix
+	add	hl, de
+	ld	(hl), bc
+	ld	hl, (iy)
+	ld	e, (iy + 3)
+	ld	(ix - 3), de
+	push	ix
+	ld	de, -343
+	add	ix, de
+	ld	bc, (ix)
+	pop	ix
+	ld	de, (ix - 3)
+	call	__lcmpu
+	jr	nz, BB17_215
+	ld	de, -355
+	lea	hl, ix
+	add	hl, de
+	ld	bc, (hl)
+	inc	bc
+	lea	iy, iy + 4
+	ld	(ix - 3), bc
+	push	ix
+	ld	bc, -352
+	add	ix, bc
+	ld	de, (ix)
+	pop	ix
+	jr	BB17_211
+BB17_214:
+	ld	de, -340
+	lea	hl, ix
+	add	hl, de
+	ld	hl, (hl)
+	ld	de, -349
+	lea	iy, ix
+	add	iy, de
+	ld	bc, (iy)
+	jr	BB17_216
+BB17_215:
+	ld	de, -331
+	lea	hl, ix
+	add	hl, de
+	ld	hl, (hl)
+	ld	de, -355
+	lea	iy, ix
+	add	iy, de
+	ld	bc, (iy)
+	add	hl, bc
+BB17_216:
+	ld	de, -331
+	lea	iy, ix
+	add	iy, de
+	ld	(iy), hl
+	push	bc
+	pop	hl
+	ld	de, 1
+	or	a, a
+	sbc	hl, de
+	jr	nz, BB17_218
+	ld	l, a
+	push	hl
+	ld	bc, -343
+	lea	hl, ix
+	add	hl, bc
+	ld	hl, (hl)
+	push	hl
+	ld	hl, _.str.123
+	push	hl
+	ld	hl, 20
+	push	hl
+	ld	bc, -295
+	lea	hl, ix
+	add	hl, bc
+	ld	hl, (hl)
+	push	hl
+	call	_snprintf
+	jr	BB17_219
+BB17_218:
+	push	bc
+	ld	l, a
+	push	hl
+	ld	bc, -343
+	lea	hl, ix
+	add	hl, bc
+	ld	hl, (hl)
+	push	hl
+	ld	hl, _.str.124
+	push	hl
+	ld	hl, 20
+	push	hl
+	ld	bc, -295
+	lea	hl, ix
+	add	hl, bc
+	ld	hl, (hl)
+	push	hl
+	call	_snprintf
+	pop	hl
+BB17_219:
+	pop	hl
+	pop	hl
+	pop	hl
+	pop	hl
+	pop	hl
+	ld	bc, -346
+	lea	hl, ix
+	add	hl, bc
+	bit	0, (hl)
+	ld	bc, -298
+	lea	iy, ix
+	push	af
+	add	iy, bc
+	pop	af
+	ld	de, (iy)
+	jr	nz, BB17_221
+	push	de
+	call	_strlen
+	push	hl
+	pop	de
+	pop	hl
+	ld	hl, 51
+	or	a, a
+	sbc	hl, de
+	push	hl
+	ld	hl, _.str.125
+	push	hl
+	ld	bc, -298
+	lea	hl, ix
+	add	hl, bc
+	ld	hl, (hl)
+	push	hl
+	call	_strncat
+	ld	bc, -298
+	lea	hl, ix
+	add	hl, bc
+	ld	de, (hl)
+	pop	hl
+	pop	hl
+	pop	hl
+BB17_221:
+	push	de
+	call	_strlen
+	push	hl
+	pop	de
+	pop	hl
+	ld	hl, 51
+	or	a, a
+	sbc	hl, de
+	push	hl
+	ld	bc, -295
+	lea	hl, ix
+	add	hl, bc
+	ld	hl, (hl)
+	push	hl
+	ld	bc, -298
+	lea	hl, ix
+	add	hl, bc
+	ld	hl, (hl)
+	push	hl
+	call	_strncat
+	pop	hl
+	pop	hl
+	pop	hl
+	xor	a, a
+	ld	de, -337
+	lea	hl, ix
+	add	hl, de
+	ld	bc, (hl)
+	ld	de, -331
+	lea	iy, ix
+	add	iy, de
+	ld	iy, (iy)
+	jp	BB17_209
+BB17_222:
 	ld	de, -295
 	lea	hl, ix
 	add	hl, de
@@ -15096,12 +15371,12 @@ BB17_207:
 	add	hl, de
 	ld	(hl), bc
 	ld	de, (ix - 3)
-BB17_208:
+BB17_223:
 	push	bc
 	pop	hl
 	or	a, a
 	sbc	hl, de
-	jp	z, BB17_233
+	jp	z, BB17_250
 	ld	bc, -334
 	lea	hl, ix
 	add	hl, bc
@@ -15181,14 +15456,14 @@ BB17_208:
 	ld	de, (ix)
 	pop	ix
 	ld	bc, (ix - 3)
-	jp	nz, BB17_208
-BB17_211:
+	jp	nz, BB17_223
+BB17_226:
 	call	_printDivider
 	ld	hl, 5
 	push	hl
 	ld	hl, _.str.133
-	jp	BB17_324
-BB17_212:
+	jp	BB17_320
+BB17_227:
 	push	bc
 	pop	hl
 	ld	de, 11
@@ -15200,7 +15475,7 @@ BB17_212:
 	add	hl, de
 	pop	af
 	ld	(hl), bc
-	jp	nc, BB17_261
+	jp	nc, BB17_273
 	ld	hl, _.str.172
 	push	hl
 	ld	hl, _.str.167
@@ -15213,7 +15488,7 @@ BB17_212:
 	push	hl
 	pop	iy
 	ld	bc, 0
-BB17_214:
+BB17_229:
 	ld	(ix - 3), de
 	ld	de, -334
 	lea	hl, ix
@@ -15223,13 +15498,13 @@ BB17_214:
 	sbc	hl, bc
 	call	pe, __setflag
 	ld	de, (ix - 3)
-	jp	m, BB17_325
+	jp	m, BB17_321
 	ex	de, hl
 	ld	de, 15
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	jp	p, BB17_325
+	jp	p, BB17_321
 	ld	de, -331
 	lea	hl, ix
 	add	hl, de
@@ -15289,11 +15564,11 @@ BB17_214:
 	lea	iy, ix
 	add	iy, bc
 	ld	(iy), de
-BB17_217:
+BB17_232:
 	add	hl, bc
 	or	a, a
 	sbc	hl, bc
-	jp	z, BB17_219
+	jp	z, BB17_234
 	ld	bc, -337
 	lea	iy, ix
 	add	iy, bc
@@ -15415,8 +15690,8 @@ BB17_217:
 	add	ix, bc
 	ld	(ix), iy
 	pop	ix
-	jp	BB17_217
-BB17_219:
+	jp	BB17_232
+BB17_234:
 	ld	(ix - 58), 0
 	ld	bc, -298
 	lea	hl, ix
@@ -15429,10 +15704,10 @@ BB17_219:
 	lea	hl, ix
 	add	hl, bc
 	ld	hl, (hl)
-BB17_220:
+BB17_235:
 	or	a, a
 	sbc	hl, de
-	jp	z, BB17_224
+	jp	z, BB17_239
 	ld	hl, (iy)
 	push	ix
 	ld	bc, -337
@@ -15472,7 +15747,7 @@ BB17_220:
 	add	hl, bc
 	or	a, a
 	sbc	hl, bc
-	jr	z, BB17_223
+	jr	z, BB17_238
 	ld	bc, -295
 	lea	hl, ix
 	add	hl, bc
@@ -15497,7 +15772,7 @@ BB17_220:
 	pop	hl
 	pop	hl
 	pop	hl
-BB17_223:
+BB17_238:
 	ld	bc, -295
 	lea	hl, ix
 	add	hl, bc
@@ -15540,8 +15815,8 @@ BB17_223:
 	add	ix, bc
 	ld	hl, (ix)
 	pop	ix
-	jp	BB17_220
-BB17_224:
+	jp	BB17_235
+BB17_239:
 	ld	bc, -295
 	lea	hl, ix
 	add	hl, bc
@@ -15562,9 +15837,9 @@ BB17_224:
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	jp	p, BB17_226
+	jp	p, BB17_241
 	ld	bc, 8
-BB17_226:
+BB17_241:
 	ld	de, -337
 	lea	hl, ix
 	add	hl, de
@@ -15621,8 +15896,55 @@ BB17_226:
 	ld	bc, (ix)
 	pop	ix
 	ld	de, (ix - 3)
-	jp	BB17_214
-BB17_227:
+	jp	BB17_229
+BB17_242:
+	push	bc
+	ld	bc, -334
+	lea	hl, ix
+	add	hl, bc
+	ld	hl, (hl)
+	push	hl
+	ld	hl, _.str.126
+	push	hl
+	ld	hl, 52
+	push	hl
+	ld	bc, -295
+	lea	hl, ix
+	add	hl, bc
+	ld	hl, (hl)
+	push	hl
+	call	_snprintf
+	pop	hl
+	pop	hl
+	pop	hl
+	pop	hl
+	pop	hl
+	ld	hl, 1
+	push	hl
+	ld	bc, -295
+	lea	hl, ix
+	add	hl, bc
+	ld	hl, (hl)
+	push	hl
+	call	_printLine
+	pop	hl
+	pop	hl
+	ld	bc, -298
+	lea	hl, ix
+	add	hl, bc
+	ld	hl, (hl)
+	push	hl
+	call	_strlen
+	pop	de
+	ld	de, 37
+	or	a, a
+	sbc	hl, de
+	jp	nc, BB17_290
+	ld	hl, 4
+	push	hl
+	ld	bc, -298
+	jp	BB17_318
+BB17_244:
 	ld	hl, (ix - 58)
 	ld	de, -331
 	lea	iy, ix
@@ -15634,12 +15956,12 @@ BB17_227:
 	add	hl, de
 	ld	(hl), a
 	ld	de, 1
-BB17_228:
+BB17_245:
 	push	de
 	pop	hl
 	or	a, a
 	sbc	hl, bc
-	jp	z, BB17_242
+	jp	z, BB17_259
 	ld	bc, -340
 	lea	hl, ix
 	add	hl, bc
@@ -15658,12 +15980,12 @@ BB17_228:
 	ld	hl, (iy)
 	ld	e, (iy + 3)
 	ld	bc, (ix - 3)
-BB17_230:
+BB17_247:
 	ld	a, e
 	push	hl
 	pop	bc
 	call	__lcmpzero
-	jr	z, BB17_232
+	jr	z, BB17_249
 	ld	de, -331
 	lea	hl, ix
 	add	hl, de
@@ -15687,8 +16009,8 @@ BB17_230:
 	ld	(ix), a
 	pop	ix
 	ld	de, (ix - 3)
-	jr	BB17_230
-BB17_232:
+	jr	BB17_247
+BB17_249:
 	ld	bc, -340
 	lea	hl, ix
 	add	hl, bc
@@ -15700,12 +16022,12 @@ BB17_232:
 	add	iy, de
 	ld	bc, (iy)
 	ld	de, (ix - 3)
-	jp	BB17_228
-BB17_233:
+	jp	BB17_245
+BB17_250:
 	ld	iy, (ix - 58)
 	ld	a, (ix - 55)
 	ld	bc, 1
-BB17_234:
+BB17_251:
 	push	bc
 	pop	de
 	push	de
@@ -15719,7 +16041,7 @@ BB17_234:
 	or	a, a
 	sbc	hl, bc
 	ld	de, (ix - 3)
-	jp	z, BB17_280
+	jp	z, BB17_296
 	ld	bc, -337
 	lea	hl, ix
 	add	hl, bc
@@ -15753,11 +16075,11 @@ BB17_234:
 	ld	de, (ix - 3)
 	ld	e, a
 	call	__lcmpzero
-	jp	z, BB17_241
+	jp	z, BB17_258
 	lea	hl, iy
 	ld	e, d
 	call	__lcmpzero
-	jp	z, BB17_241
+	jp	z, BB17_258
 	ld	(ix - 3), bc
 	ld	bc, -343
 	lea	hl, ix
@@ -15774,14 +16096,14 @@ BB17_234:
 	ld	(ix), bc
 	pop	ix
 	ld	iyh, a
-BB17_238:
+BB17_255:
 	ld	de, (ix - 3)
 	ld	d, a
 	ld	a, e
 	push	hl
 	pop	bc
 	call	__lcmpzero
-	jr	z, BB17_240
+	jr	z, BB17_257
 	ld	(ix - 3), bc
 	ld	bc, -340
 	lea	hl, ix
@@ -15796,8 +16118,8 @@ BB17_238:
 	add	ix, de
 	ld	(ix), bc
 	pop	ix
-	jr	BB17_238
-BB17_240:
+	jr	BB17_255
+BB17_257:
 	ld	bc, -334
 	lea	hl, ix
 	add	hl, bc
@@ -15833,8 +16155,8 @@ BB17_240:
 	inc	bc
 	ld	de, (ix - 3)
 	call	__lcmpzero
-	jp	nz, BB17_234
-BB17_241:
+	jp	nz, BB17_251
+BB17_258:
 	call	_printDivider
 	ld	hl, 5
 	push	hl
@@ -15859,8 +16181,8 @@ BB17_241:
 	ld	a, iyh
 	ld	l, a
 	jp	m, BB17_1
-	jp	BB17_281
-BB17_242:
+	jp	BB17_297
+BB17_259:
 	call	_printDivider
 	ld	bc, -334
 	lea	hl, ix
@@ -15873,329 +16195,171 @@ BB17_242:
 	ld	hl, (hl)
 	push	hl
 	ld	hl, _.str.134
-	jp	BB17_282
-BB17_243:
-	ld	de, -334
-	lea	hl, ix
-	add	hl, de
-	ld	bc, (hl)
-	ld	de, -331
-	lea	iy, ix
-	add	iy, de
-	ld	hl, (iy)
-	ld	a, l
-	call	__ftoul
+	jp	BB17_298
+BB17_260:
 	push	bc
-	pop	iy
-	ld	e, a
-	lea	hl, iy
-	ld	bc, 2
-	xor	a, a
-	call	__lcmpu
+	pop	hl
 	ld	(ix - 3), bc
-	push	ix
 	ld	bc, -334
-	push	af
-	add	ix, bc
-	pop	af
-	ld	(ix), de
-	pop	ix
-	push	ix
-	ld	de, -343
-	push	af
-	add	ix, de
-	pop	af
-	ld	(ix), iy
-	pop	ix
+	lea	iy, ix
+	add	iy, bc
+	ld	de, (iy)
+	or	a, a
+	sbc	hl, de
 	ld	bc, (ix - 3)
-	jp	nc, BB17_289
+	jp	nc, BB17_305
 	ld	hl, 5
 	push	hl
-	ld	hl, _.str.122
+	ld	hl, _.str.143
+	jp	BB17_320
+BB17_262:
+	or	a, a
+	sbc	hl, hl
+	ld	(_factorCount), hl
+	ld	bc, -337
+	lea	hl, ix
+	add	hl, bc
+	ld	hl, (hl)
 	push	hl
-	call	_printLine
+	push	iy
+	call	_collectFactors
 	pop	hl
 	pop	hl
-	ld	de, -334
-	lea	hl, ix
-	add	hl, de
-	ld	bc, (hl)
-BB17_245:
-	ld	de, -307
-	lea	hl, ix
-	add	hl, de
-	ld	iy, (hl)
-	ld	(iy + 76), 0
-	ld	iy, 0
-	ld	a, 1
-BB17_246:
-	ld	de, (_factorCount)
-	lea	hl, iy
-	ld	(ix - 3), bc
-	push	ix
-	ld	bc, -331
-	add	ix, bc
-	ld	(ix), de
-	pop	ix
+	ld	hl, (_factorCount)
+	ld	bc, -340
+	lea	iy, ix
+	add	iy, bc
+	ld	(iy), hl
+	ld	de, 2
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	ld	bc, (ix - 3)
-	jp	p, BB17_278
-	ld	de, -346
+	jp	p, BB17_264
+	ld	hl, 1
+	ld	bc, -340
+	lea	iy, ix
+	add	iy, bc
+	ld	(iy), hl
+BB17_264:
+	ld	hl, _factorList+4
+	ld	de, -331
+	lea	iy, ix
+	add	iy, de
+	ld	(iy), hl
+	ld	iy, 1
+BB17_265:
+	ld	de, -337
 	lea	hl, ix
 	add	hl, de
-	ld	(hl), a
+	ld	bc, (hl)
+	lea	hl, iy
+	ld	(ix - 3), bc
+	push	ix
+	ld	bc, -340
+	add	ix, bc
+	ld	de, (ix)
+	pop	ix
+	or	a, a
+	sbc	hl, de
+	ld	bc, (ix - 3)
+	jp	z, BB17_208
 	lea	hl, iy
 	ld	c, 2
 	call	__ishl
 	push	hl
 	pop	de
-	lea	bc, iy
+	lea	hl, iy
 	ld	iy, _factorList
 	add	iy, de
-	ld	hl, (iy)
-	push	ix
-	ld	de, -340
-	add	ix, de
-	ld	(ix), hl
-	pop	ix
-	ld	a, (iy + 3)
-	ld	de, -331
-	lea	hl, ix
-	add	hl, de
-	ld	hl, (hl)
-	push	bc
-	pop	de
-	or	a, a
-	sbc	hl, de
-	push	ix
-	ld	de, -349
-	add	ix, de
-	ld	(ix), hl
-	pop	ix
-	push	ix
-	ld	de, -337
-	add	ix, de
-	ld	(ix), bc
-	pop	ix
-	push	bc
-	pop	hl
-	push	ix
-	ld	bc, -331
-	add	ix, bc
-	ld	de, (ix)
-	pop	ix
-	or	a, a
-	sbc	hl, de
-	push	hl
-	pop	de
-	or	a, a
-	sbc	hl, hl
-	push	hl
-	pop	bc
+	ld	de, (iy)
 	ld	(ix - 3), bc
-	ld	bc, -352
-	lea	hl, ix
-	add	hl, bc
-	ld	(hl), de
-BB17_248:
+	push	ix
+	ld	bc, -343
+	add	ix, bc
+	ld	(ix), de
+	pop	ix
+	ld	e, (iy + 3)
+	ld	bc, -331
+	lea	iy, ix
+	add	iy, bc
+	ld	iy, (iy)
+	push	ix
+	ld	bc, -346
+	add	ix, bc
+	ld	(ix), hl
+	pop	ix
 	ld	bc, (ix - 3)
-	ex	de, hl
-	add	hl, bc
-	add	hl, bc
+BB17_267:
+	push	ix
+	ld	bc, -349
+	add	ix, bc
+	ld	(ix), hl
+	pop	ix
+	ld	bc, 1
 	or	a, a
 	sbc	hl, bc
-	jr	z, BB17_251
-	ld	de, -355
-	lea	hl, ix
-	add	hl, de
-	ld	(hl), bc
-	ld	hl, (iy)
-	ld	e, (iy + 3)
-	ld	(ix - 3), de
-	push	ix
-	ld	de, -340
-	add	ix, de
-	ld	bc, (ix)
-	pop	ix
-	ld	de, (ix - 3)
-	call	__lcmpu
-	jr	nz, BB17_252
-	ld	de, -355
-	lea	hl, ix
-	add	hl, de
-	ld	bc, (hl)
-	inc	bc
-	lea	iy, iy + 4
+	call	pe, __setflag
+	jp	m, BB17_270
+	ld	bc, (iy - 4)
+	ld	a, (iy - 1)
 	ld	(ix - 3), bc
-	push	ix
-	ld	bc, -352
-	add	ix, bc
-	ld	de, (ix)
-	pop	ix
-	jr	BB17_248
-BB17_251:
-	ld	de, -331
-	lea	hl, ix
-	add	hl, de
-	ld	hl, (hl)
-	ld	de, -349
-	lea	iy, ix
-	add	iy, de
-	ld	bc, (iy)
-	jr	BB17_253
-BB17_252:
-	ld	de, -337
-	lea	hl, ix
-	add	hl, de
-	ld	hl, (hl)
-	ld	de, -355
-	lea	iy, ix
-	add	iy, de
-	ld	bc, (iy)
-	add	hl, bc
-BB17_253:
-	ld	de, -337
-	lea	iy, ix
-	add	iy, de
-	ld	(iy), hl
-	push	bc
-	pop	hl
-	ld	de, 1
-	or	a, a
-	sbc	hl, de
-	jr	nz, BB17_255
-	ld	l, a
-	push	hl
-	ld	bc, -340
+	ld	bc, -343
 	lea	hl, ix
 	add	hl, bc
 	ld	hl, (hl)
-	push	hl
-	ld	hl, _.str.123
-	push	hl
-	ld	hl, 20
-	push	hl
-	ld	bc, -295
+	ld	bc, (ix - 3)
+	call	__lcmpu
+	jr	nc, BB17_271
+	ld	(iy), bc
+	ld	(iy + 3), a
+	lea	iy, iy - 4
+	ld	bc, -349
 	lea	hl, ix
 	add	hl, bc
 	ld	hl, (hl)
-	push	hl
-	call	_snprintf
-	jr	BB17_256
-BB17_255:
-	push	bc
-	ld	l, a
-	push	hl
-	ld	bc, -340
+	dec	hl
+	jr	BB17_267
+BB17_270:
+	ld	iy, 0
+	lea	hl, iy
+	jr	BB17_272
+BB17_271:
+	ld	bc, -349
 	lea	hl, ix
 	add	hl, bc
 	ld	hl, (hl)
+BB17_272:
+	ld	c, 2
+	call	__ishl
 	push	hl
-	ld	hl, _.str.124
-	push	hl
-	ld	hl, 20
-	push	hl
-	ld	bc, -295
-	lea	hl, ix
-	add	hl, bc
-	ld	hl, (hl)
-	push	hl
-	call	_snprintf
-	pop	hl
-BB17_256:
-	pop	hl
-	pop	hl
-	pop	hl
-	pop	hl
-	pop	hl
-	ld	bc, -346
-	lea	hl, ix
-	add	hl, bc
-	bit	0, (hl)
-	ld	bc, -298
-	lea	iy, ix
-	push	af
+	pop	bc
+	ld	iy, _factorList
 	add	iy, bc
-	pop	af
-	ld	de, (iy)
-	jr	nz, BB17_258
-	push	de
-	call	_strlen
-	push	hl
-	pop	de
-	pop	hl
-	ld	hl, 51
-	or	a, a
-	sbc	hl, de
-	push	hl
-	ld	hl, _.str.125
-	push	hl
-	ld	bc, -298
-	lea	hl, ix
-	add	hl, bc
-	ld	hl, (hl)
-	push	hl
-	call	_strncat
-	ld	bc, -298
-	lea	hl, ix
-	add	hl, bc
-	ld	de, (hl)
-	pop	hl
-	pop	hl
-	pop	hl
-BB17_258:
-	push	de
-	call	_strlen
-	push	hl
-	pop	de
-	pop	hl
-	ld	hl, 51
-	or	a, a
-	sbc	hl, de
-	push	hl
-	ld	bc, -295
-	lea	hl, ix
-	add	hl, bc
-	ld	hl, (hl)
-	push	hl
-	ld	bc, -298
-	lea	hl, ix
-	add	hl, bc
-	ld	hl, (hl)
-	push	hl
-	call	_strncat
-	pop	hl
-	pop	hl
-	pop	hl
-	xor	a, a
-	ld	de, -334
+	push	ix
+	ld	bc, -343
+	add	ix, bc
+	ld	hl, (ix)
+	pop	ix
+	ld	(iy), hl
+	ld	(iy + 3), e
+	ld	de, -346
 	lea	hl, ix
 	add	hl, de
-	ld	bc, (hl)
-	ld	de, -337
+	ld	hl, (hl)
+	inc	hl
+	ld	de, -331
 	lea	iy, ix
 	add	iy, de
 	ld	iy, (iy)
-	jp	BB17_246
-BB17_259:
-	push	bc
-	pop	hl
-	ld	(ix - 3), bc
-	ld	bc, -334
-	lea	iy, ix
-	add	iy, bc
-	ld	de, (iy)
-	or	a, a
-	sbc	hl, de
-	ld	bc, (ix - 3)
-	jp	nc, BB17_300
-	ld	hl, 5
+	lea	iy, iy + 4
+	push	ix
+	add	ix, de
+	ld	(ix), iy
+	pop	ix
 	push	hl
-	ld	hl, _.str.143
-	jp	BB17_324
-BB17_261:
+	pop	iy
+	jp	BB17_265
+BB17_273:
 	push	bc
 	pop	hl
 	ld	c, 1
@@ -16227,7 +16391,7 @@ BB17_261:
 	pop	ix
 	ld	bc, 0
 	ld	de, (ix - 3)
-BB17_262:
+BB17_274:
 	push	bc
 	pop	hl
 	or	a, a
@@ -16316,7 +16480,7 @@ BB17_262:
 	add	hl, bc
 	pop	af
 	ld	(hl), iy
-	jr	c, BB17_265
+	jr	c, BB17_277
 	ld	bc, -343
 	lea	hl, ix
 	add	hl, bc
@@ -16325,7 +16489,7 @@ BB17_262:
 	lea	iy, ix
 	add	iy, bc
 	ld	(iy), hl
-BB17_265:
+BB17_277:
 	ld	bc, -337
 	lea	hl, ix
 	add	hl, bc
@@ -16335,7 +16499,7 @@ BB17_265:
 	add	ix, bc
 	ld	de, (ix)
 	pop	ix
-BB17_266:
+BB17_278:
 	push	de
 	pop	hl
 	ld	(ix - 3), de
@@ -16347,7 +16511,7 @@ BB17_266:
 	or	a, a
 	sbc	hl, bc
 	ld	de, (ix - 3)
-	jp	nc, BB17_273
+	jp	nc, BB17_285
 	push	de
 	ld	bc, -334
 	lea	hl, ix
@@ -16373,7 +16537,7 @@ BB17_266:
 	pop	iy
 	ld	bc, (ix - 3)
 	call	__llcmpzero
-	jp	nz, BB17_271
+	jp	nz, BB17_283
 	ld	de, -331
 	lea	hl, ix
 	add	hl, de
@@ -16381,7 +16545,7 @@ BB17_266:
 	add	hl, bc
 	or	a, a
 	sbc	hl, bc
-	jp	z, BB17_271
+	jp	z, BB17_283
 	ld	de, -331
 	lea	hl, ix
 	add	hl, de
@@ -16396,7 +16560,7 @@ BB17_266:
 	sbc	hl, de
 	call	pe, __setflag
 	ld	bc, (ix - 3)
-	jp	p, BB17_271
+	jp	p, BB17_283
 	ld	bc, -331
 	lea	hl, ix
 	add	hl, bc
@@ -16450,8 +16614,8 @@ BB17_266:
 	pop	hl
 	pop	hl
 	ld	hl, 3
-	jr	BB17_272
-BB17_271:
+	jr	BB17_284
+BB17_283:
 	push	bc
 	push	iy
 	ld	bc, -355
@@ -16478,7 +16642,7 @@ BB17_271:
 	add	hl, sp
 	ld	sp, hl
 	ld	hl, 4
-BB17_272:
+BB17_284:
 	push	hl
 	ld	bc, -298
 	lea	hl, ix
@@ -16497,8 +16661,8 @@ BB17_272:
 	lea	iy, ix
 	add	iy, bc
 	ld	iy, (iy)
-	jp	BB17_266
-BB17_273:
+	jp	BB17_278
+BB17_285:
 	lea	hl, iy
 	ld	bc, -349
 	lea	iy, ix
@@ -16506,7 +16670,7 @@ BB17_273:
 	ld	de, (iy)
 	or	a, a
 	sbc	hl, de
-	jr	nz, BB17_277
+	jr	nz, BB17_289
 	ld	de, (_gCurrentLine)
 	push	de
 	pop	hl
@@ -16514,10 +16678,10 @@ BB17_273:
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	p, BB17_276
+	jp	p, BB17_288
 	inc	de
 	ld	(_gCurrentLine), de
-BB17_276:
+BB17_288:
 	ld	hl, 3
 	push	hl
 	ld	hl, _.str.180
@@ -16525,7 +16689,7 @@ BB17_276:
 	call	_printLine
 	pop	hl
 	pop	hl
-BB17_277:
+BB17_289:
 	call	_waitContinue
 	ld	de, -352
 	lea	hl, ix
@@ -16537,57 +16701,71 @@ BB17_277:
 	add	iy, bc
 	ld	de, (iy)
 	ld	bc, (ix - 3)
-	jp	BB17_262
-BB17_278:
-	push	bc
-	ld	bc, -343
+	jp	BB17_274
+BB17_290:
+	ld	(ix - 110), 0
+	ld	bc, -304
 	lea	hl, ix
 	add	hl, bc
 	ld	hl, (hl)
 	push	hl
-	ld	hl, _.str.126
-	push	hl
-	ld	hl, 52
-	push	hl
-	ld	bc, -295
-	lea	hl, ix
-	add	hl, bc
-	ld	hl, (hl)
-	push	hl
-	call	_snprintf
-	pop	hl
-	pop	hl
-	pop	hl
-	pop	hl
-	pop	hl
-	ld	hl, 1
-	push	hl
-	ld	bc, -295
-	lea	hl, ix
-	add	hl, bc
-	ld	hl, (hl)
-	push	hl
-	call	_printLine
-	pop	hl
-	pop	hl
-	ld	bc, -298
-	lea	hl, ix
-	add	hl, bc
-	ld	hl, (hl)
-	push	hl
-	call	_strlen
 	pop	de
-	ld	de, 37
+	inc	de
+	ld	bc, 51
+	ldir
+	ld	de, -307
+	lea	hl, ix
+	add	hl, de
+	ld	iy, (hl)
+	ld	(iy + 75), 0
+	or	a, a
+	sbc	hl, hl
+	push	hl
+	pop	bc
+BB17_291:
+	push	bc
+	pop	hl
+	ld	de, -36
 	or	a, a
 	sbc	hl, de
-	jp	nc, BB17_311
-	ld	hl, 4
+	ld	de, -298
+	lea	hl, ix
+	push	af
+	add	hl, de
+	pop	af
+	ld	iy, (hl)
+	jr	z, BB17_295
+	add	iy, bc
+	ld	a, (iy + 36)
+	cp	a, 42
+	jr	nz, BB17_294
+	ld	a, (iy + 35)
+	cp	a, 32
+	jp	z, BB17_316
+BB17_294:
+	dec	bc
+	jr	BB17_291
+BB17_295:
+	ld	hl, 36
 	push	hl
-	ld	bc, -298
-	jp	BB17_322
-BB17_280:
+	push	iy
+	ld	bc, -304
+	lea	hl, ix
+	add	hl, bc
+	ld	hl, (hl)
+	push	hl
+	call	_strncpy
+	pop	hl
+	pop	hl
+	pop	hl
+	ld	bc, -313
+	lea	hl, ix
+	add	hl, bc
+	ld	hl, (hl)
+	jp	BB17_317
+BB17_296:
 	ld	l, a
-BB17_281:
+BB17_297:
 	push	ix
 	ld	bc, -331
 	add	ix, bc
@@ -16609,7 +16787,7 @@ BB17_281:
 	ld	hl, (hl)
 	push	hl
 	ld	hl, _.str.137
-BB17_282:
+BB17_298:
 	push	hl
 	ld	hl, 52
 	push	hl
@@ -16619,183 +16797,36 @@ BB17_282:
 	ld	hl, (hl)
 	push	hl
 	call	_snprintf
-BB17_283:
+BB17_299:
 	pop	hl
-BB17_284:
+BB17_300:
 	pop	hl
 	pop	hl
 	pop	hl
 	pop	hl
 	ld	hl, 4
-BB17_285:
+BB17_301:
 	push	hl
 	ld	bc, -298
-	jp	BB17_323
-BB17_286:
+	jp	BB17_319
+BB17_302:
 	push	bc
 	pop	hl
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	jp	m, BB17_288
+	jp	m, BB17_304
 	lea	hl, iy
 	or	a, a
 	sbc	hl, bc
 	call	pe, __setflag
-	jp	p, BB17_318
-BB17_288:
+	jp	p, BB17_323
+BB17_304:
 	ld	hl, 5
 	push	hl
 	ld	hl, _.str.156
-	jp	BB17_324
-BB17_289:
-	or	a, a
-	sbc	hl, hl
-	ld	(_factorCount), hl
-	ld	bc, -334
-	lea	hl, ix
-	add	hl, bc
-	ld	hl, (hl)
-	push	hl
-	push	iy
-	call	_collectFactors
-	pop	hl
-	pop	hl
-	ld	hl, (_factorCount)
-	ld	bc, -337
-	lea	iy, ix
-	add	iy, bc
-	ld	(iy), hl
-	ld	de, 2
-	or	a, a
-	sbc	hl, de
-	call	pe, __setflag
-	jp	p, BB17_291
-	ld	hl, 1
-	ld	bc, -337
-	lea	iy, ix
-	add	iy, bc
-	ld	(iy), hl
-BB17_291:
-	ld	hl, _factorList+4
-	ld	de, -331
-	lea	iy, ix
-	add	iy, de
-	ld	(iy), hl
-	ld	iy, 1
-BB17_292:
-	ld	de, -334
-	lea	hl, ix
-	add	hl, de
-	ld	bc, (hl)
-	lea	hl, iy
-	ld	(ix - 3), bc
-	push	ix
-	ld	bc, -337
-	add	ix, bc
-	ld	de, (ix)
-	pop	ix
-	or	a, a
-	sbc	hl, de
-	ld	bc, (ix - 3)
-	jp	z, BB17_245
-	lea	hl, iy
-	ld	c, 2
-	call	__ishl
-	push	hl
-	pop	de
-	lea	hl, iy
-	ld	iy, _factorList
-	add	iy, de
-	ld	de, (iy)
-	ld	(ix - 3), bc
-	push	ix
-	ld	bc, -340
-	add	ix, bc
-	ld	(ix), de
-	pop	ix
-	ld	e, (iy + 3)
-	ld	bc, -331
-	lea	iy, ix
-	add	iy, bc
-	ld	iy, (iy)
-	push	ix
-	ld	bc, -346
-	add	ix, bc
-	ld	(ix), hl
-	pop	ix
-	ld	bc, (ix - 3)
-BB17_294:
-	push	ix
-	ld	bc, -349
-	add	ix, bc
-	ld	(ix), hl
-	pop	ix
-	ld	bc, 1
-	or	a, a
-	sbc	hl, bc
-	call	pe, __setflag
-	jp	m, BB17_297
-	ld	bc, (iy - 4)
-	ld	a, (iy - 1)
-	ld	(ix - 3), bc
-	ld	bc, -340
-	lea	hl, ix
-	add	hl, bc
-	ld	hl, (hl)
-	ld	bc, (ix - 3)
-	call	__lcmpu
-	jr	nc, BB17_298
-	ld	(iy), bc
-	ld	(iy + 3), a
-	lea	iy, iy - 4
-	ld	bc, -349
-	lea	hl, ix
-	add	hl, bc
-	ld	hl, (hl)
-	dec	hl
-	jr	BB17_294
-BB17_297:
-	ld	iy, 0
-	lea	hl, iy
-	jr	BB17_299
-BB17_298:
-	ld	bc, -349
-	lea	hl, ix
-	add	hl, bc
-	ld	hl, (hl)
-BB17_299:
-	ld	c, 2
-	call	__ishl
-	push	hl
-	pop	bc
-	ld	iy, _factorList
-	add	iy, bc
-	push	ix
-	ld	bc, -340
-	add	ix, bc
-	ld	hl, (ix)
-	pop	ix
-	ld	(iy), hl
-	ld	(iy + 3), e
-	ld	de, -346
-	lea	hl, ix
-	add	hl, de
-	ld	hl, (hl)
-	inc	hl
-	ld	de, -331
-	lea	iy, ix
-	add	iy, de
-	ld	iy, (iy)
-	lea	iy, iy + 4
-	push	ix
-	add	ix, de
-	ld	(ix), iy
-	pop	ix
-	push	hl
-	pop	iy
-	jp	BB17_292
-BB17_300:
+	jp	BB17_320
+BB17_305:
 	push	de
 	pop	hl
 	add	hl, bc
@@ -16812,7 +16843,7 @@ BB17_300:
 	ld	(ix), hl
 	pop	ix
 	ld	bc, (ix - 3)
-	jp	z, BB17_328
+	jp	z, BB17_327
 	ld	(ix - 3), bc
 	ld	bc, -346
 	lea	hl, ix
@@ -16842,7 +16873,7 @@ BB17_300:
 	add	hl, de
 	ld	hl, (hl)
 	ld	de, (ix - 3)
-BB17_302:
+BB17_307:
 	ld	(ix - 3), bc
 	push	ix
 	ld	bc, -346
@@ -16853,7 +16884,7 @@ BB17_302:
 	or	a, a
 	sbc	hl, bc
 	ld	bc, (ix - 3)
-	jp	z, BB17_317
+	jp	z, BB17_322
 	ld	bc, -349
 	lea	hl, ix
 	add	hl, bc
@@ -16901,9 +16932,9 @@ BB17_302:
 	inc	a
 	bit	0, a
 	lea	hl, iy
-	jr	nz, BB17_305
+	jr	nz, BB17_310
 	ld	hl, 1
-BB17_305:
+BB17_310:
 	bit	0, a
 	ld	(ix - 3), de
 	ld	de, -340
@@ -16913,10 +16944,10 @@ BB17_305:
 	pop	af
 	ld	bc, (iy)
 	ld	de, (ix - 3)
-	jr	nz, BB17_307
+	jr	nz, BB17_312
 	push	de
 	pop	bc
-BB17_307:
+BB17_312:
 	bit	0, a
 	ld	(ix - 3), bc
 	ld	bc, -337
@@ -16926,9 +16957,9 @@ BB17_307:
 	pop	af
 	ld	de, (iy)
 	ld	bc, (ix - 3)
-	jp	nz, BB17_309
+	jp	nz, BB17_314
 	ld.sis	de, 0
-BB17_309:
+BB17_314:
 	push	de
 	push	bc
 	push	hl
@@ -16957,7 +16988,7 @@ BB17_309:
 	pop	hl
 	pop	hl
 	pop	hl
-	jp	c, BB17_326
+	jp	c, BB17_325
 	lea	hl, iy
 	lea	de, iy
 	push	ix
@@ -17031,110 +17062,8 @@ BB17_309:
 	ld	de, (ix)
 	pop	ix
 	ld	bc, (ix - 3)
-	jp	BB17_302
-BB17_311:
-	ld	(ix - 110), 0
-	ld	bc, -304
-	lea	hl, ix
-	add	hl, bc
-	ld	hl, (hl)
-	push	hl
-	pop	de
-	inc	de
-	ld	bc, 51
-	ldir
-	ld	de, -307
-	lea	hl, ix
-	add	hl, de
-	ld	iy, (hl)
-	ld	(iy + 75), 0
-	or	a, a
-	sbc	hl, hl
-	push	hl
-	pop	bc
-BB17_312:
-	push	bc
-	pop	hl
-	ld	de, -36
-	or	a, a
-	sbc	hl, de
-	ld	de, -298
-	lea	hl, ix
-	push	af
-	add	hl, de
-	pop	af
-	ld	iy, (hl)
-	jr	z, BB17_316
-	add	iy, bc
-	ld	a, (iy + 36)
-	cp	a, 42
-	jr	nz, BB17_315
-	ld	a, (iy + 35)
-	cp	a, 32
-	jp	z, BB17_320
-BB17_315:
-	dec	bc
-	jr	BB17_312
+	jp	BB17_307
 BB17_316:
-	ld	hl, 36
-	push	hl
-	push	iy
-	ld	bc, -304
-	lea	hl, ix
-	add	hl, bc
-	ld	hl, (hl)
-	push	hl
-	call	_strncpy
-	pop	hl
-	pop	hl
-	pop	hl
-	ld	bc, -313
-	lea	hl, ix
-	add	hl, bc
-	ld	hl, (hl)
-	jp	BB17_321
-BB17_317:
-	ld	(ix - 3), bc
-	ld	bc, -337
-	lea	hl, ix
-	add	hl, bc
-	ld	hl, (hl)
-	jp	BB17_327
-BB17_318:
-	ld	de, -346
-	lea	hl, ix
-	add	hl, de
-	ld	(hl), bc
-	ld	bc, -334
-	lea	iy, ix
-	add	iy, bc
-	ld	hl, (iy)
-	push	hl
-	ld	bc, -331
-	lea	hl, ix
-	add	hl, bc
-	ld	hl, (hl)
-	push	hl
-	call	_fabsf
-	push	hl
-	pop	iy
-	pop	hl
-	pop	hl
-	lea	hl, iy
-	push	ix
-	ld	bc, -352
-	add	ix, bc
-	ld	(ix), de
-	pop	ix
-	ld	bc, -7770017
-	ld	a, 48
-	call	__fcmp
-	jp	p, BB17_336
-	ld	hl, 5
-	push	hl
-	ld	hl, _.str.157
-	jp	BB17_324
-BB17_320:
 	push	bc
 	pop	hl
 	ld	de, 35
@@ -17169,7 +17098,7 @@ BB17_320:
 	pop	ix
 	add	iy, de
 	lea	hl, iy + 38
-BB17_321:
+BB17_317:
 	ld	de, 51
 	push	de
 	push	hl
@@ -17195,7 +17124,7 @@ BB17_321:
 	ld	hl, 4
 	push	hl
 	ld	bc, -310
-BB17_322:
+BB17_318:
 	lea	hl, ix
 	add	hl, bc
 	ld	hl, (hl)
@@ -17222,19 +17151,60 @@ BB17_322:
 	ld	hl, 1
 	push	hl
 	ld	bc, -295
-BB17_323:
+BB17_319:
 	lea	hl, ix
 	add	hl, bc
 	ld	hl, (hl)
-BB17_324:
+BB17_320:
 	push	hl
 	call	_printLine
 	pop	hl
 	pop	hl
-BB17_325:
+BB17_321:
 	call	_waitContinue
 	jp	BB17_1
-BB17_326:
+BB17_322:
+	ld	(ix - 3), bc
+	ld	bc, -337
+	lea	hl, ix
+	add	hl, bc
+	ld	hl, (hl)
+	jp	BB17_326
+BB17_323:
+	ld	de, -346
+	lea	hl, ix
+	add	hl, de
+	ld	(hl), bc
+	ld	bc, -334
+	lea	iy, ix
+	add	iy, bc
+	ld	hl, (iy)
+	push	hl
+	ld	bc, -331
+	lea	hl, ix
+	add	hl, bc
+	ld	hl, (hl)
+	push	hl
+	call	_fabsf
+	push	hl
+	pop	iy
+	pop	hl
+	pop	hl
+	lea	hl, iy
+	push	ix
+	ld	bc, -352
+	add	ix, bc
+	ld	(ix), de
+	pop	ix
+	ld	bc, -7770017
+	ld	a, 48
+	call	__fcmp
+	jp	p, BB17_335
+	ld	hl, 5
+	push	hl
+	ld	hl, _.str.157
+	jp	BB17_320
+BB17_325:
 	or	a, a
 	sbc	hl, hl
 	push	hl
@@ -17255,9 +17225,9 @@ BB17_326:
 	add	ix, bc
 	ld	de, (ix)
 	pop	ix
-BB17_327:
+BB17_326:
 	ld	bc, (ix - 3)
-BB17_328:
+BB17_327:
 	ld	(ix - 3), bc
 	push	ix
 	ld	bc, -337
@@ -17311,7 +17281,7 @@ BB17_328:
 	pop	ix
 	ld	de, (ix - 3)
 	call	__llcmpzero
-	jp	nz, BB17_331
+	jp	nz, BB17_330
 	ld	bc, -334
 	lea	hl, ix
 	add	hl, bc
@@ -17319,7 +17289,7 @@ BB17_328:
 	add	hl, bc
 	or	a, a
 	sbc	hl, bc
-	jp	z, BB17_331
+	jp	z, BB17_330
 	ld	de, -331
 	lea	hl, ix
 	add	hl, de
@@ -17427,8 +17397,8 @@ BB17_328:
 	pop	hl
 	pop	hl
 	ld	hl, 3
-	jr	BB17_332
-BB17_331:
+	jr	BB17_331
+BB17_330:
 	ld	bc, -337
 	lea	hl, ix
 	add	hl, bc
@@ -17457,7 +17427,7 @@ BB17_331:
 	pop	hl
 	pop	hl
 	ld	hl, 4
-BB17_332:
+BB17_331:
 	push	hl
 	ld	bc, -298
 	lea	hl, ix
@@ -17494,11 +17464,11 @@ BB17_332:
 	ld	hl, (ix)
 	pop	ix
 	ld	bc, (ix - 3)
-	jp	nz, BB17_335
+	jp	nz, BB17_334
 	add	hl, bc
 	or	a, a
 	sbc	hl, bc
-	jp	z, BB17_335
+	jp	z, BB17_334
 	push	hl
 	ld	bc, -331
 	lea	hl, ix
@@ -17542,8 +17512,8 @@ BB17_332:
 	pop	hl
 	pop	hl
 	ld	hl, 3
-	jp	BB17_285
-BB17_335:
+	jp	BB17_301
+BB17_334:
 	ld	bc, -349
 	lea	hl, ix
 	add	hl, bc
@@ -17566,8 +17536,8 @@ BB17_335:
 	push	hl
 	call	_snprintf
 	pop	hl
-	jp	BB17_283
-BB17_336:
+	jp	BB17_299
+BB17_335:
 	ld	de, -343
 	lea	hl, ix
 	add	hl, de
@@ -17802,7 +17772,7 @@ BB17_336:
 	call	__fcmp
 	ld	iy, 0
 	ld	d, iyh
-	jp	m, BB17_338
+	jp	m, BB17_337
 	ld	de, -349
 	lea	hl, ix
 	add	hl, de
@@ -17854,7 +17824,7 @@ BB17_336:
 	push	bc
 	pop	iy
 	ld	d, a
-BB17_338:
+BB17_337:
 	ld	(ix - 3), de
 	ld	de, -361
 	lea	hl, ix
@@ -17909,9 +17879,9 @@ BB17_338:
 	xor	a, a
 	call	__fcmp
 	ld	a, 1
-	jp	m, BB17_340
+	jp	m, BB17_339
 	ld	a, 0
-BB17_340:
+BB17_339:
 	ld	de, -346
 	lea	hl, ix
 	add	hl, de
@@ -17929,7 +17899,7 @@ BB17_340:
 	ld	d, 48
 	ld	a, d
 	ld	iy, -7770017
-	jp	nz, BB17_343
+	jp	nz, BB17_342
 	ld	bc, -337
 	lea	hl, ix
 	add	hl, bc
@@ -17944,7 +17914,7 @@ BB17_340:
 	xor	a, a
 	call	__fcmp
 	ld	a, d
-	jp	p, BB17_343
+	jp	p, BB17_342
 	ld	de, -349
 	lea	hl, ix
 	add	hl, de
@@ -17956,7 +17926,7 @@ BB17_340:
 	add	ix, de
 	ld	(ix), l
 	pop	ix
-BB17_343:
+BB17_342:
 	ld	bc, -358
 	lea	hl, ix
 	add	hl, bc
@@ -17968,7 +17938,7 @@ BB17_343:
 	pop	ix
 	lea	bc, iy
 	call	__fcmp
-	jp	p, BB17_346
+	jp	p, BB17_345
 	ld	bc, -349
 	lea	hl, ix
 	add	hl, bc
@@ -17977,7 +17947,7 @@ BB17_343:
 	or	a, a
 	sbc	hl, de
 	call	pe, __setflag
-	jp	m, BB17_346
+	jp	m, BB17_345
 	ld	hl, 4
 	push	hl
 	ld	hl, _.str.158
@@ -17988,8 +17958,8 @@ BB17_343:
 	ld	hl, 1
 	push	hl
 	ld	hl, _.str.159
-	jp	BB17_324
-BB17_346:
+	jp	BB17_320
+BB17_345:
 	ld	bc, -352
 	lea	hl, ix
 	add	hl, bc
@@ -18062,9 +18032,9 @@ BB17_346:
 	ld	a, 63
 	call	__fcmp
 	ld	d, 1
-	jp	m, BB17_348
+	jp	m, BB17_347
 	ld	d, 0
-BB17_348:
+BB17_347:
 	lea	bc, iy
 	ld	(ix - 3), bc
 	ld	bc, -340
@@ -18105,14 +18075,14 @@ BB17_348:
 	pop	ix
 	ld	de, (ix - 3)
 	bit	0, d
-	jr	nz, BB17_350
+	jr	nz, BB17_349
 	ld	bc, -334
 	lea	hl, ix
 	add	hl, bc
 	ld	(hl), iy
-BB17_350:
+BB17_349:
 	bit	0, d
-	jr	nz, BB17_352
+	jr	nz, BB17_351
 	ld	bc, -340
 	lea	hl, ix
 	add	hl, bc
@@ -18121,7 +18091,7 @@ BB17_350:
 	lea	iy, ix
 	add	iy, bc
 	ld	(iy), hl
-BB17_352:
+BB17_351:
 	ld	bc, -367
 	lea	hl, ix
 	add	hl, bc
@@ -18222,9 +18192,9 @@ BB17_352:
 	add	hl, bc
 	bit	0, (hl)
 	ld	hl, _.str.164
-	jr	nz, BB17_354
+	jr	nz, BB17_353
 	ld	hl, _.str.1
-BB17_354:
+BB17_353:
 	ld	bc, -346
 	lea	iy, ix
 	add	iy, bc
@@ -18274,7 +18244,7 @@ BB17_354:
 	ld	bc, 7340032
 	ld	a, 65
 	call	__fcmp
-	jp	p, BB17_325
+	jp	p, BB17_321
 	push	de
 	push	hl
 	ld	hl, 65
@@ -18299,19 +18269,19 @@ BB17_354:
 	bit	0, (ix)
 	pop	ix
 	ld	bc, (ix - 3)
-	jr	nz, BB17_357
+	jr	nz, BB17_356
 	push	hl
 	pop	bc
-BB17_357:
+BB17_356:
 	ld	(ix - 3), bc
 	ld	bc, -331
 	lea	hl, ix
 	add	hl, bc
 	bit	0, (hl)
 	ld	bc, (ix - 3)
-	jr	nz, BB17_359
+	jr	nz, BB17_358
 	ld	e, iyl
-BB17_359:
+BB17_358:
 	push	de
 	push	bc
 	ld	hl, _.str.165
@@ -18344,8 +18314,8 @@ BB17_359:
 	ld	hl, (hl)
 	push	hl
 	call	_snprintf
-	jp	BB17_284
-BB17_360:
+	jp	BB17_300
+BB17_359:
 	ld	sp, ix
 	pop	ix
 	ret
@@ -18354,19 +18324,19 @@ BB17_360:
 	private	JTI17_0
 JTI17_0:
 	dl	BB17_4
-	dl	BB17_11
-	dl	BB17_20
-	dl	BB17_25
-	dl	BB17_32
-	dl	BB17_40
-	dl	BB17_45
-	dl	BB17_360
+	dl	BB17_10
+	dl	BB17_19
+	dl	BB17_24
+	dl	BB17_31
+	dl	BB17_39
+	dl	BB17_44
+	dl	BB17_359
 	private	JTI17_1
 JTI17_1:
-	dl	BB17_49
-	dl	BB17_68
-	dl	BB17_75
-	dl	BB17_82
+	dl	BB17_48
+	dl	BB17_67
+	dl	BB17_74
+	dl	BB17_81
 	dl	BB17_1
 
 	section	.text,"ax",@progbits
@@ -33142,7 +33112,7 @@ _.str.117:
 	section	.rodata,"a",@progbits
 	private	_.str.118
 _.str.118:
-	db	"(Max: 2147483647 - 32 bit signed integer limit.", 0
+	db	"(Max: 4294967295", 0
 
 	section	.rodata,"a",@progbits
 	private	_.str.119
@@ -34900,6 +34870,7 @@ _switch.table.menuTheoryOfEquations:
 	ident	"clang version 15.0.7 (https://github.com/CE-Programming/llvm-project 31b787336940cbc96d054033c3d843f344507042)"
 	extern	_fabsf
 	extern	__lcmpzero
+	extern	__ulltof
 	extern	__llcmpzero
 	extern	_strncat
 	extern	__idivs
@@ -34923,10 +34894,10 @@ _switch.table.menuTheoryOfEquations:
 	extern	_gfx_Begin
 	extern	_snprintf
 	extern	_lgamma
+	extern	_strncpy
 	extern	__setflag
 	extern	_strlen
 	extern	__iand
-	extern	_strncpy
 	extern	__llmulu
 	extern	__fsub
 	extern	_pow
@@ -34935,22 +34906,22 @@ _switch.table.menuTheoryOfEquations:
 	extern	_atan2
 	extern	__fneg
 	extern	__irems
+	extern	__lland
 	extern	__ftoull
 	extern	__llxor
-	extern	__Unwind_SjLj_Register
 	extern	_os_GetCSC
 	extern	__fadd
 	extern	_gfx_SetPalette
-	extern	__lland
+	extern	__Unwind_SjLj_Register
 	extern	_atof
 	extern	_roundf
 	extern	__llremu
 	extern	_log10
 	extern	__bdivu
 	extern	_gfx_FillRectangle_NoClip
-	extern	__lremu
 	extern	__lsub
 	extern	__ftoll
+	extern	__lremu
 	extern	__ishrs
 	extern	__ishru
 	extern	__llcmpu
@@ -34963,7 +34934,6 @@ _switch.table.menuTheoryOfEquations:
 	extern	__llshrs
 	extern	__frameset
 	extern	_gfx_SetTextBGColor
-	extern	__ladd
 	extern	__llshru
 	extern	__lshru
 	extern	_gfx_GetStringWidth
@@ -34972,6 +34942,7 @@ _switch.table.menuTheoryOfEquations:
 	extern	_gfx_SetDraw
 	extern	_floorf
 	extern	__Unwind_SjLj_Unregister
+	extern	__ladd
 	extern	_gfx_SetColor
 	extern	__land
 	extern	_gfx_PrintStringXY
