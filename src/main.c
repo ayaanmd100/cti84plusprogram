@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.55
+ * MathSolverCE  v2.56
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -3808,6 +3808,25 @@ static void solveNegRecipRoots(void)
  *   p=3: outside*=3^(3/3)=3,  inside*=3^(3%3)=1
  *   => 3 * cbrt(4)
  */
+/*
+ * Radical Simplifier — nth root of any positive integer.
+ *
+ * Algorithm:
+ *   1. Factorize X using the existing Pollard's rho engine.
+ *   2. For each prime p with exponent e in the factorization:
+ *        outside *= p ^ (e / n)      <- perfect nth power part
+ *        inside  *= p ^ (e % n)      <- leftover stays under radical
+ *   3. Result:  outside * nthroot(inside)
+ *   4. Always show decimal approximation.
+ *   5. Use continued fractions to find best p/q approx (q<=9999),
+ *      clearly marked as approximate when the result is irrational.
+ *
+ * Example n=2, X=12:
+ *   12 = 2^2 * 3^1
+ *   outside=2, inside=3 => 2 * sqrt(3)
+ *   decimal = 3.46410...
+ *   fraction ~ 97/28  (approx)
+ */
 static void solveRadicalSimplifier(void)
 {
     RESET_CANCEL();
@@ -3844,25 +3863,35 @@ static void solveRadicalSimplifier(void)
 
     printDivider();
 
-    /* X = 1: trivially simplified */
+    char lineBuf[52];
+
+    /* ── X = 1: trivially 1 ── */
     if (X == 1) {
-        char lineBuf[52];
-        snprintf(lineBuf, sizeof(lineBuf), "%u-root(1) = 1", (unsigned)n);
+        char rootLabel[12];
+        if      (n == 2) snprintf(rootLabel, sizeof(rootLabel), "sqrt");
+        else if (n == 3) snprintf(rootLabel, sizeof(rootLabel), "cbrt");
+        else             snprintf(rootLabel, sizeof(rootLabel), "%u-root", (unsigned)n);
+
+        snprintf(lineBuf, sizeof(lineBuf), "%s(1) = 1", rootLabel);
         printLine(lineBuf, COL_GREEN);
+        printLine("= 1.0 (decimal)", COL_BLACK);
+        /* No fraction needed — it is exactly 1 */
         waitContinue();
         return;
     }
 
-    /* Factorize X */
+    /* ── Factorize X ── */
     if (!calculateFactorization(X)) {
         printLine("X must be >= 2", COL_RED);
         waitContinue();
         return;
     }
 
-    /* Walk the factor list, extracting perfect nth powers */
-    uint32_t outside = 1;   /* coefficient outside the radical */
-    uint32_t inside  = 1;   /* radicand after simplification   */
+    /* ── Walk factor list, extract perfect nth powers ── */
+    uint32_t outside = 1;
+    uint32_t inside  = 1;
+    bool     outsideOverflow = false;
+    bool     insideOverflow  = false;
 
     int i = 0;
     while (i < factorCount) {
@@ -3870,69 +3899,107 @@ static void solveRadicalSimplifier(void)
         int      exp  = 0;
         while (i < factorCount && factorList[i] == base) { exp++; i++; }
 
-        int outsideExp = exp / (int)n;   /* goes outside */
-        int insideExp  = exp % (int)n;   /* stays inside */
+        int outsideExp = exp / (int)n;
+        int insideExp  = exp % (int)n;
 
-        /* outside *= base ^ outsideExp */
         for (int k = 0; k < outsideExp; k++) {
-            /* Overflow guard */
-            if (outside > 0xFFFFFFFFUL / base) {
-                outside = 0;   /* sentinel: too large to display */
-                break;
-            }
+            if (outside > 0xFFFFFFFFUL / base) { outsideOverflow = true; break; }
             outside *= base;
         }
-
-        /* inside *= base ^ insideExp */
         for (int k = 0; k < insideExp; k++) {
-            if (inside > 0xFFFFFFFFUL / base) {
-                inside = 0;
-                break;
-            }
+            if (inside > 0xFFFFFFFFUL / base) { insideOverflow = true; break; }
             inside *= base;
         }
     }
 
-    /* Build root label string */
+    /* ── Build root label ── */
     char rootLabel[12];
     if      (n == 2) snprintf(rootLabel, sizeof(rootLabel), "sqrt");
     else if (n == 3) snprintf(rootLabel, sizeof(rootLabel), "cbrt");
     else             snprintf(rootLabel, sizeof(rootLabel), "%u-root", (unsigned)n);
 
-    char lineBuf[52];
-
-    /* Show original */
-    snprintf(lineBuf, sizeof(lineBuf), "%s(%lu)", rootLabel, (unsigned long)X);
+    /* ── Show original expression ── */
+    snprintf(lineBuf, sizeof(lineBuf), "%s(%lu) =", rootLabel, (unsigned long)X);
     printLine(lineBuf, COL_BLACK);
 
-    /* Show simplified */
-    if (inside == 1) {
-        /* Perfect nth power — result is a whole number */
-        if (outside == 0) {
-            printLine("= (too large to display)", COL_ORANGE);
-        } else {
-            snprintf(lineBuf, sizeof(lineBuf), "= %lu  (exact)",
-                     (unsigned long)outside);
-            printLine(lineBuf, COL_GREEN);
-        }
+    /* ── Show simplified radical form ── */
+    bool isExact = (inside == 1);   /* perfect nth power — whole number result */
+
+    if (outsideOverflow || insideOverflow) {
+        printLine("Overflow in simplification", COL_RED);
+    } else if (isExact) {
+        snprintf(lineBuf, sizeof(lineBuf), "%lu  (exact integer)",
+                 (unsigned long)outside);
+        printLine(lineBuf, COL_GREEN);
     } else if (outside == 1) {
-        /* Nothing came out — already fully simplified */
-        snprintf(lineBuf, sizeof(lineBuf), "= %s(%lu)  (simplified)",
+        snprintf(lineBuf, sizeof(lineBuf), "%s(%lu)",
                  rootLabel, (unsigned long)inside);
         printLine(lineBuf, COL_ORANGE);
-        printLine("Cannot simplify further", COL_BLACK);
+        printLine("Already fully simplified", COL_BLACK);
     } else {
-        /* General case: outside * nthroot(inside) */
-        if (outside == 0 || inside == 0) {
-            printLine("Overflow in simplification", COL_RED);
-        } else {
-            snprintf(lineBuf, sizeof(lineBuf), "= %lu * %s(%lu)",
-                     (unsigned long)outside, rootLabel, (unsigned long)inside);
-            printLine(lineBuf, COL_GREEN);
+        snprintf(lineBuf, sizeof(lineBuf), "%lu * %s(%lu)",
+                 (unsigned long)outside, rootLabel, (unsigned long)inside);
+        printLine(lineBuf, COL_GREEN);
+    }
+
+    /* ── Always show decimal approximation ── */
+    double decimalVal = (double)outside * pow((double)inside, 1.0 / (double)n);
+    char   decBuf[24];
+    snprintf(decBuf, sizeof(decBuf), "%.10g", decimalVal);
+    snprintf(lineBuf, sizeof(lineBuf), "= %s (decimal)", decBuf);
+    printLine(lineBuf, COL_BLACK);
+
+    /* ── Fraction approximation via continued fractions ──
+     *
+     * Only shown when result is NOT an exact integer.
+     * Clearly marked "approx" whenever inside != 1.
+     * Stops when denominator exceeds 9999 or error < 1e-7.
+     */
+    if (!isExact && !outsideOverflow && !insideOverflow) {
+        double  val = decimalVal;
+        long    h0=1, h1=0;
+        long    k0=0, k1=1;
+        bool    foundFrac = false;
+
+        for (int step = 0; step < 30; step++) {
+            long   a  = (long)floor(val);
+            long   h2 = a * h0 + h1;
+            long   k2 = a * k0 + k1;
+
+            if (k2 > 9999) break;
+
+            double approxErr = fabs((double)h2 / (double)k2 - decimalVal);
+
+            if (approxErr < 1e-7) {
+                char fracBuf[40];
+                if (k2 == 1) {
+                    /* Should not reach here since isExact=false, but guard anyway */
+                    snprintf(fracBuf, sizeof(fracBuf), "= %ld (exact)", h2);
+                    printLine(fracBuf, COL_GREEN);
+                } else {
+                    /* Always label as approx — the result is irrational */
+                    snprintf(fracBuf, sizeof(fracBuf), "~ %ld/%ld (approx frac)",
+                             h2, k2);
+                    printLine(fracBuf, COL_GRAY);
+                }
+                foundFrac = true;
+                break;
+            }
+
+            double remainder = val - (double)a;
+            if (fabs(remainder) < 1e-10) break;
+
+            h1=h0; h0=h2;
+            k1=k0; k0=k2;
+            val = 1.0 / remainder;
+        }
+
+        if (!foundFrac) {
+            printLine("(no simple fraction <= 9999)", COL_GRAY);
         }
     }
 
-    /* Show the full factorization breakdown for reference */
+    /* ── Show factorization for reference ── */
     printBlank();
     printLine("Factorization:", COL_ORANGE);
 
@@ -3948,7 +4015,7 @@ static void solveRadicalSimplifier(void)
         if (exp == 1) snprintf(term, sizeof(term), "%lu", (unsigned long)base);
         else          snprintf(term, sizeof(term), "%lu^%d", (unsigned long)base, exp);
         if (!firstTerm)
-            strncat(factBuf, "*", sizeof(factBuf)-strlen(factBuf)-1);
+            strncat(factBuf, " * ", sizeof(factBuf)-strlen(factBuf)-1);
         strncat(factBuf, term, sizeof(factBuf)-strlen(factBuf)-1);
         firstTerm = false;
     }
@@ -3956,7 +4023,6 @@ static void solveRadicalSimplifier(void)
 
     waitContinue();
 }
-
 /* ═══════════════════════════════════════════════
    SECTION 3 — FORMULA REFERENCE
    ═══════════════════════════════════════════════ */
@@ -4229,7 +4295,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.55 ", COL_NAVY);
+    printLine("MathSolverCE  v2.56 ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
