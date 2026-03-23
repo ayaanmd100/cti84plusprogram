@@ -34629,7 +34629,7 @@ _.str.2:
 	section	.rodata,"a",@progbits
 	private	_.str.3
 _.str.3:
-	db	"MathSolverCE  v2.55 ", 0
+	db	"MathSolverCE  v2.56 ", 0
 
 	section	.rodata,"a",@progbits
 	private	_.str.4
