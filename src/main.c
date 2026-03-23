@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.51
+ * MathSolverCE  v2.53
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -1176,21 +1176,20 @@ static void solveFactorize(void)
 
     double inputVal = inputNumber("N = "); CHECK_CANCEL;
 
-    if(inputVal >= 2147483647.0){
-        printLine("Input reached or exceeded 32bit int limit.", COL_RED);
-        waitContinue();
-        return;
-    }
-
-    uint32_t n = (uint32_t)fabs(round(inputVal));
-
+/* Reject non-integers and values too large for uint32_t */
+if (inputVal != floor(inputVal) || inputVal < 2.0 || inputVal > 4294967295.0) {
     printDivider();
+    printLine("Enter integer N >= 2", COL_RED);
+    printLine("Max: 4294967295", COL_BLACK);
+    waitContinue();
+    return;
+}
 
-    if (!calculateFactorization(n)) {
-        printLine("Enter N >= 2", COL_RED);
-        waitContinue();
-        return;
-    }
+uint32_t n = (uint32_t)inputVal;
+
+if (!calculateFactorization(n)) {
+    printLine("Enter N >= 2", COL_RED);
+}
 
     char resultBuf[52];
     resultBuf[0] = '\0';
@@ -1536,10 +1535,13 @@ static void solveBinomialCoeff(void)
 
     /* If small enough, also show the exact integer */
     if (logCoeff < 15.0) {
-        double exact = (resultNeg ? -1.0 : 1.0) * pow(10.0, logCoeff);
-        snprintf(lineBuf, sizeof(lineBuf), "k = %.0f (exact)", exact);
-        printLine(lineBuf, COL_GREEN);
-    }
+     double exact = (resultNeg ? -1.0 : 1.0) * pow(10.0, logCoeff);
+    /* Use %g to preserve decimals — shows 3.75 not 4 */
+    char exactBuf[24];
+    snprintf(exactBuf, sizeof(exactBuf), "%.10g", exact);
+    snprintf(lineBuf, sizeof(lineBuf), "k = %s (exact)", exactBuf);
+    printLine(lineBuf, COL_GREEN);
+}
 
     waitContinue();
 }
@@ -2481,21 +2483,21 @@ static double evalPoly(double *coeffs, int degree, double val)
 }
 
 /* ─────────────────────────────────────────────
-   1. REMAINDER & FACTOR THEOREM
+   REMAINDER & FACTOR THEOREM
    ─────────────────────────────────────────────
    Two modes:
-   A) Find remainder: enter full polynomial, enter r,
-      output P(r) = remainder when divided by (x-r).
-   B) Find k: one coefficient is unknown k.
-      Enter known coefficients (mark the unknown as 0),
-      enter its position, enter r and desired remainder,
-      solve for k.
+   A) All coefficients known — evaluate P(r) directly.
+      Output: remainder, and whether (x-r) is a factor.
+   B) One coefficient is unknown (k) — user tells us
+      which power holds k ONCE up front, then enters
+      all other coefficients, then enters r and the
+      desired remainder. Solver finds k.
    ───────────────────────────────────────────── */
 static void solveRemainderFactor(void)
 {
     RESET_CANCEL();
     startScreen("REMAINDER/FACTOR THM", "[CLEAR] Back");
-    printSubheader("P(x) div by (x-r)");
+    printSubheader("P(x) divided by (x-r)");
     printBlank();
 
     double degVal = inputNumber("Degree of P(x) = "); CHECK_CANCEL;
@@ -2508,149 +2510,166 @@ static void solveRemainderFactor(void)
         return;
     }
 
-    /* Ask if there is an unknown k in the polynomial */
-    printLine("Is there an unknown k?", COL_NAVY);
-    printLine("1: Yes    2: No", COL_ORANGE);
+    /* ── Step 1: ask ONCE whether there is an unknown k ── */
+    startScreen("REMAINDER/FACTOR THM", "[CLEAR] Back");
+    printSubheader("Unknown coefficient?");
+    printBlank();
+    printLine("1: Yes, there is a k", COL_BLACK);
+    printLine("2: No, all known",      COL_BLACK);
     blit();
-    uint8_t choice;
-    do { choice = waitForKey(); } while (choice != sk_1 && choice != sk_2
-                                         && choice != sk_Clear);
-    if (choice == sk_Clear) { gUserCancelled = true; return; }
-    bool hasK = (choice == sk_1);
 
-    int kPos = -1;   /* which coefficient index holds k (0=leading) */
+    uint8_t hasKChoice;
+    do { hasKChoice = waitForKey(); }
+    while (hasKChoice != sk_1 && hasKChoice != sk_2 && hasKChoice != sk_Clear);
+    if (hasKChoice == sk_Clear) { gUserCancelled = true; return; }
+    bool hasK = (hasKChoice == sk_1);
 
-    /* Collect coefficients */
-    double coeffs[6];
-    char titleBuf[32];
+    int kPos = -1;   /* index into coeffs[] where k lives */
+
+    /* ── Step 2: if k exists, ask which power — ONCE ── */
+    if (hasK) {
+        startScreen("REMAINDER/FACTOR THM", "[CLEAR] Back");
+        printSubheader("Which power holds k?");
+        printBlank();
+        double kPowVal = inputNumber("k is coeff of x^? = "); CHECK_CANCEL;
+        int kPower = (int)round(kPowVal);
+        if (kPower < 0 || kPower > deg) {
+            printDivider();
+            printLine("Invalid power for degree", COL_RED);
+            waitContinue();
+            return;
+        }
+        kPos = deg - kPower;   /* convert power to array index */
+    }
+
+    /* ── Step 3: collect all coefficients, one per screen ──
+       The k slot is labelled and force-stored as 0.
+       No "is this k?" prompt ever appears here.            */
+    double coeffs[6] = {0};
 
     for (int i = 0; i <= deg; i++) {
-        snprintf(titleBuf, sizeof(titleBuf),
-                 "COEFF of x^%d", deg - i);
+        char titleBuf[32];
+        snprintf(titleBuf, sizeof(titleBuf), "COEFF of x^%d", deg - i);
         startScreen(titleBuf, "[CLEAR] Back");
-        printSubheader(hasK ? "Enter 0 for the k term" : "Enter coefficient");
+
+        if (i == kPos) {
+            printSubheader("This is the k term");
+            printLine("(enter 0 as placeholder)", COL_GRAY);
+        } else {
+            printSubheader("Enter coefficient");
+        }
         printBlank();
 
-        /* Show coefficients entered so far */
+        /* Show all previously entered coefficients */
         for (int j = 0; j < i; j++) {
-            char prev[28];
-            if (j == kPos)
+            char prev[32];
+            if (j == kPos) {
                 snprintf(prev, sizeof(prev), "  x^%d: k", deg - j);
-            else {
-                char nb[12];
+            } else {
+                char nb[16];
                 formatNumber(nb, sizeof(nb), coeffs[j]);
                 snprintf(prev, sizeof(prev), "  x^%d: %s", deg - j, nb);
             }
             printLine(prev, COL_GRAY);
         }
 
-        char prompt[14];
+        char prompt[16];
         snprintf(prompt, sizeof(prompt), "x^%d coeff = ", deg - i);
         double cv = inputNumber(prompt); CHECK_CANCEL;
-        coeffs[i] = cv;
 
-        /* If hasK and this is zero, ask if this is the k position */
-    if (hasK) {
-    startScreen("REMAINDER/FACTOR THM", "[CLEAR] Back");
-    printSubheader("Which power holds k?");
-    printBlank();
-    double kPowVal = inputNumber("k is coeff of x^? = ");
-    CHECK_CANCEL;
-    int kPower = (int)round(kPowVal);
-    if (kPower < 0 || kPower > deg) {
-        printDivider();
-        printLine("Invalid power", COL_RED);
-        waitContinue();
-        return;
-    }
-    kPos = deg - kPower;   /* convert power to index */
-}}
-
-    if (hasK && kPos < 0) {
-        printDivider();
-        printLine("No k position marked", COL_RED);
-        printLine("Enter k coeff as 0", COL_BLACK);
-        waitContinue();
-        return;
+        /* Force k slot to 0 regardless of what user types */
+        coeffs[i] = (i == kPos) ? 0.0 : cv;
     }
 
-    /* Enter divisor root r  (dividing by x-r) */
+    /* ── Step 4: enter divisor root r ── */
     startScreen("REMAINDER/FACTOR THM", "[CLEAR] Back");
-    printSubheader("Divisor = (x - r)");
+    printSubheader("Divisor is (x - r)");
     printBlank();
+
+    /* Show polynomial entered so far */
+    for (int j = 0; j <= deg; j++) {
+        char prev[32];
+        if (j == kPos) {
+            snprintf(prev, sizeof(prev), "  x^%d: k", deg - j);
+        } else {
+            char nb[16];
+            formatNumber(nb, sizeof(nb), coeffs[j]);
+            snprintf(prev, sizeof(prev), "  x^%d: %s", deg - j, nb);
+        }
+        printLine(prev, COL_GRAY);
+    }
+    printBlank();
+
     double r = inputNumber("r = "); CHECK_CANCEL;
 
-    /* Enter desired remainder */
+    /* ── Step 5: if Mode B, ask desired remainder ── */
     double desiredRem = 0.0;
-    if (!hasK) {
-        /* Just compute and display */
-    } else {
+    if (hasK) {
         printLine("Desired remainder:", COL_NAVY);
-        printLine("(0 = factor theorem)", COL_GRAY);
+        printLine("(0 for factor theorem)", COL_GRAY);
         desiredRem = inputNumber("Remainder = "); CHECK_CANCEL;
     }
 
+    /* ── Step 6: compute and display ── */
     printDivider();
 
     char lineBuf[52], n1[20];
 
     if (!hasK) {
-        /* Mode A: evaluate P(r) */
+        /* ── Mode A: evaluate P(r), report remainder ── */
         double rem = evalPoly(coeffs, deg, r);
+
         formatNumber(n1, sizeof(n1), r);
-        snprintf(lineBuf, sizeof(lineBuf), "P(%s) = remainder", n1);
+        snprintf(lineBuf, sizeof(lineBuf), "P(%s) =", n1);
         printLine(lineBuf, COL_BLACK);
 
         formatNumber(n1, sizeof(n1), rem);
         snprintf(lineBuf, sizeof(lineBuf), "Remainder = %s", n1);
         printLine(lineBuf, fabs(rem) < MATH_EPS ? COL_GREEN : COL_ORANGE);
 
-        if (fabs(rem) < MATH_EPS)
+        if (fabs(rem) < MATH_EPS) {
             printLine("(x-r) IS a factor", COL_GREEN);
-        else
+        } else {
             printLine("(x-r) is NOT a factor", COL_RED);
+        }
 
     } else {
-        /*
-         * Mode B: find k.
-         * P(r) = desiredRem
-         * Let S = sum of all known terms evaluated at r.
+        /* ── Mode B: solve for k ──
+         *
+         * P(r) with k=0 gives S (the known part).
          * The k term contributes k * r^(deg-kPos).
-         * So: S + k * r^(deg-kPos) = desiredRem
-         * k = (desiredRem - S) / r^(deg-kPos)
+         * So:  S + k * r^(deg-kPos) = desiredRem
+         *      k = (desiredRem - S) / r^(deg-kPos)
          */
-        double S = 0.0;
-        double rPow = 1.0;
-        /* Evaluate known terms using Horner manually */
-        /* Easier: just evaluate twice — once with k=0, once with k=1 */
-        /* P(r)|_k=0  +  k * (contribution of k term) = desiredRem */
-
-        /* Contribution of k term at position kPos:
-           position kPos means coefficient of x^(deg-kPos)
-           value = r^(deg-kPos)                                 */
+        int   kPow    = deg - kPos;
         double kContrib = 1.0;
-        int kPow = deg - kPos;
         for (int i = 0; i < kPow; i++) kContrib *= r;
 
-        /* Evaluate rest of polynomial (k=0) */
-        S = evalPoly(coeffs, deg, r);   /* coeffs[kPos]=0 already */
+        double S = evalPoly(coeffs, deg, r);   /* coeffs[kPos]=0 */
 
         if (fabs(kContrib) < MATH_EPS) {
-            printLine("k term vanishes at r", COL_RED);
+            /* r^kPow = 0 means k vanishes at this r — unsolvable */
+            printLine("k term = 0 at r=0", COL_RED);
             printLine("Cannot solve for k", COL_RED);
         } else {
             double k = (desiredRem - S) / kContrib;
+
             formatNumber(n1, sizeof(n1), k);
             snprintf(lineBuf, sizeof(lineBuf), "k = %s", n1);
             printLine(lineBuf, COL_GREEN);
 
-            /* Verify */
+            /* Verify: substitute k back and evaluate */
             coeffs[kPos] = k;
             double check = evalPoly(coeffs, deg, r);
             formatNumber(n1, sizeof(n1), check);
             snprintf(lineBuf, sizeof(lineBuf), "Verify P(r) = %s", n1);
             printLine(lineBuf,
                       fabs(check - desiredRem) < 1e-6 ? COL_GRAY : COL_RED);
+
+            /* Factor theorem bonus: tell user if (x-r) is a factor */
+            if (fabs(desiredRem) < MATH_EPS) {
+                printLine("(x-r) IS a factor", COL_GREEN);
+            }
         }
     }
 
@@ -3092,6 +3111,88 @@ static void solveVietasFormulas(void)
     waitContinue();
 }
 
+/*
+ * Q20-2013 style: polynomial has symbolic parameters a, b.
+ * Structure: x^3 + P(a)*x^2 + Q(a)*x + R(a,b) = 0
+ * User tells us which coefficients depend on a single
+ * integer parameter 'a', and the solver scans a over a range
+ * to compute the desired root relation at each value.
+ *
+ * Handles the pattern:  x^3 + a*x^2 + a*x + (C + b) = 0
+ * where b is free (so D can be ignored in sum-of-squares).
+ *
+ * Sum of squares of roots = a^2 - 2a  (from Vieta's, b cancels)
+ */
+static void solveVietasParametric(void)
+{
+    RESET_CANCEL();
+    startScreen("VIETA'S PARAMETRIC", "[CLEAR] Back");
+    printSubheader("x^3 + ax^2 + ax + ... = 0");
+    printBlank();
+
+    printLine("Coefficients as multiples", COL_NAVY);
+    printLine("of parameter a:", COL_NAVY);
+    printBlank();
+
+    /* User enters: B = mB*a + cB,  C = mC*a + cC
+       D is ignored (free parameter b absorbs it)    */
+    double mB = inputNumber("B = mB*a, mB = "); CHECK_CANCEL;
+    double cB = inputNumber("  + cB, cB = ");   CHECK_CANCEL;
+    double mC = inputNumber("C = mC*a, mC = "); CHECK_CANCEL;
+    double cC = inputNumber("  + cC, cC = ");   CHECK_CANCEL;
+
+    double aMin = inputNumber("a range: min = "); CHECK_CANCEL;
+    double aMax = inputNumber("         max = "); CHECK_CANCEL;
+    double aStep = inputNumber("    step (e.g.2) = "); CHECK_CANCEL;
+
+    if (fabs(aStep) < MATH_EPS) {
+        printDivider();
+        printLine("Step cannot be 0", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    startScreen("VIETA'S PARAMETRIC", "[ENTER] Done");
+    printSubheader("a    r1^2+r2^2+r3^2");
+
+    /* A=1 always (monic cubic) */
+    double bestSumSq  = -1e18;
+    double bestA      = aMin;
+    bool   first      = true;
+
+    char lineBuf[52], n1[20], n2[20];
+
+    for (double a = aMin; a <= aMax + MATH_EPS; a += aStep) {
+        double B = mB * a + cB;
+        double C = mC * a + cC;
+        /* e1 = -B/1, e2 = C/1 */
+        double e1 = -B;
+        double e2 =  C;
+        double sumSqR = e1*e1 - 2.0*e2;
+
+        if (sumSqR > bestSumSq || first) {
+            bestSumSq = sumSqR;
+            bestA     = a;
+            first     = false;
+        }
+
+        if (gCurrentLine < MAX_LINES - 2) {
+            formatNumber(n1, sizeof(n1), a);
+            formatNumber(n2, sizeof(n2), sumSqR);
+            snprintf(lineBuf, sizeof(lineBuf), "a=%-5s  %s", n1, n2);
+            printLine(lineBuf, COL_BLACK);
+        }
+    }
+
+    printDivider();
+    formatNumber(n1, sizeof(n1), bestA);
+    formatNumber(n2, sizeof(n2), bestSumSq);
+    snprintf(lineBuf, sizeof(lineBuf), "Max at a=%s: %s", n1, n2);
+    printLine(lineBuf, COL_GREEN);
+
+    waitContinue();
+}
+
 /* ─────────────────────────────────────────────
    5. GENERAL ROOT CONDITION FINDER
    Given Ax^2+Bx+C=0, one coeff unknown,
@@ -3123,39 +3224,32 @@ static void solveRootCondition(void)
     if (unknownCoeff != 3) { C = inputNumber("C = "); CHECK_CANCEL; }
 
     /* Pick condition type */
-    startScreen("ROOT CONDITION", "[CLEAR] Back");
-    printSubheader("Known condition:");
-    printBlank();
-    printLine("1: r1+r2 = S", COL_BLACK);
-    printLine("2: r1*r2 = P", COL_BLACK);
-    printLine("3: |r1-r2| = d", COL_BLACK);
-    printLine("4: r1^2+r2^2 = Q", COL_BLACK);
-    printLine("5: r2 = r1^2", COL_BLACK);
-    printLine("6: r2 = k*r1", COL_BLACK);
-    blit();
-
-    uint8_t cond;
-    do { cond = waitForKey(); }
-    while ((cond < sk_1 || cond > sk_6) && cond != sk_Clear);
-    if (cond == sk_Clear) { gUserCancelled = true; return; }
-    int condType = -1;
-    if      (cond == sk_1) condType = 1;
-    else if (cond == sk_2) condType = 2;
-    else if (cond == sk_3) condType = 3;
-    else if (cond == sk_4) condType = 4;
-    else if (cond == sk_5) condType = 5;
-    else if (cond == sk_6) condType = 6;
+    /* Use showMenu so number keys work reliably */
+    const char *condOptions[] = {
+        "r1+r2 = S  (sum)",
+        "r1*r2 = P  (product)",
+        "|r1-r2| = d  (diff)",
+        "r1^2+r2^2 = Q",
+        "r2 = r1^2",
+        "r2 = k*r1  (ratio)"
+    };
+    int condType = showMenu("KNOWN CONDITION", condOptions, 6);
+    if (condType < 0) return;
+    condType++;   /* showMenu returns 0-based; code uses 1-based */
 
     double condVal = 0.0;
     if (condType != 5) {
-        char prompt[20];
+        startScreen("ROOT CONDITION", "[CLEAR] Back");
+        printSubheader("Enter the known value:");
+        printBlank();
+        char prompt[24];
         switch (condType) {
-            case 1: snprintf(prompt,sizeof(prompt),"S (sum) = ");    break;
-            case 2: snprintf(prompt,sizeof(prompt),"P (product) = ");break;
-            case 3: snprintf(prompt,sizeof(prompt),"|r1-r2| = ");    break;
-            case 4: snprintf(prompt,sizeof(prompt),"Q (sum sq) = "); break;
-            case 6: snprintf(prompt,sizeof(prompt),"k (ratio) = ");  break;
-            default: break;
+            case 1: snprintf(prompt,sizeof(prompt),"S (sum) = ");      break;
+            case 2: snprintf(prompt,sizeof(prompt),"P (product) = ");  break;
+            case 3: snprintf(prompt,sizeof(prompt),"|r1-r2| = ");      break;
+            case 4: snprintf(prompt,sizeof(prompt),"Q (sum sq) = ");   break;
+            case 6: snprintf(prompt,sizeof(prompt),"k (ratio r2/r1) ="); break;
+            default: snprintf(prompt,sizeof(prompt),"Value = ");        break;
         }
         condVal = inputNumber(prompt); CHECK_CANCEL;
     }
@@ -3210,7 +3304,15 @@ static void solveRootCondition(void)
             case 5: /* r2=r1^2: r1^3=C/A, B=-A(r1+r1^2) */
             {
                 double r1 = cbrt(C / A);
-                result    = -A * (r1 + r1*r1);
+                double r2 = r1 * r1;
+                result    = -A * (r1 + r2);
+
+                /* Show the roots so the user can verify */
+                char rb1[20], rb2[20];
+                formatNumber(rb1, sizeof(rb1), r1);
+                formatNumber(rb2, sizeof(rb2), r2);
+                snprintf(lineBuf, sizeof(lineBuf), "r1=%s, r2=%s", rb1, rb2);
+                printLine(lineBuf, COL_GRAY);
                 break;
             }
             case 6: /* r2=k*r1: sum=(1+k)r1=-B/A, prod=k*r1^2=C/A */
@@ -3247,18 +3349,30 @@ static void solveRootCondition(void)
             case 4: /* Q=sum^2-2prod => C=A*(sum^2-Q)/2=A*((B/A)^2-Q)/2 */
                 result = A * ((B/A)*(B/A) - condVal) / 2.0;
                 break;
-            case 5: /* r1^3=C/A => C=A*r1^3; r1 from sum: 2r1=-B/A... */
-                  /* r2=r1^2, sum=r1+r1^2=-B/A, so r1 satisfies r1^2+r1+B/A=0 */
+           case 5:
             {
                 double disc2 = 1.0 - 4.0*(B/A);
                 if (disc2 < -MATH_EPS) { valid=false; break; }
-                double r1a = (-1.0+sqrt(fabs(disc2)))/2.0;
-                double r1b = (-1.0-sqrt(fabs(disc2)))/2.0;
+                double r1a = (-1.0 + sqrt(fabs(disc2))) / 2.0;
+                double r1b = (-1.0 - sqrt(fabs(disc2))) / 2.0;
                 double Ca  = A * r1a * r1a * r1a;
                 double Cb  = A * r1b * r1b * r1b;
+
+                char rb1[20], rb2[20];
+                formatNumber(rb1, sizeof(rb1), r1a);
+                formatNumber(rb2, sizeof(rb2), r1a*r1a);
+                snprintf(lineBuf, sizeof(lineBuf), "r1=%s r2=%s", rb1, rb2);
+                printLine(lineBuf, COL_GRAY);
+
                 formatNumber(n1, sizeof(n1), Ca);
                 snprintf(lineBuf, sizeof(lineBuf), "C = %s", n1);
                 printLine(lineBuf, COL_GREEN);
+
+                formatNumber(rb1, sizeof(rb1), r1b);
+                formatNumber(rb2, sizeof(rb2), r1b*r1b);
+                snprintf(lineBuf, sizeof(lineBuf), "r1=%s r2=%s", rb1, rb2);
+                printLine(lineBuf, COL_GRAY);
+
                 formatNumber(n1, sizeof(n1), Cb);
                 snprintf(lineBuf, sizeof(lineBuf), "  or C = %s", n1);
                 printLine(lineBuf, COL_GREEN);
@@ -3674,6 +3788,7 @@ static void menuTheoryOfEquations(void)
         "Multiple Factors",
         "Poly from Roots",
         "Vieta's Formulas",
+        "Vieta's Parametric",
         "Root Condition Finder",
         "Common Root",
         "Neg. Reciprocal Roots",
@@ -3686,10 +3801,11 @@ static void menuTheoryOfEquations(void)
             case 1: solveMultipleFactors();  break;
             case 2: solvePolyFromRoots();    break;
             case 3: solveVietasFormulas();   break;
-            case 4: solveRootCondition();    break;
-            case 5: solveCommonRoot();       break;
-            case 6: solveNegRecipRoots();    break;
-            case 7: return;
+            case 4: solveVietasParametric(); break;
+            case 5: solveRootCondition();    break;
+            case 6: solveCommonRoot();       break;
+            case 7: solveNegRecipRoots();    break;
+            case 8: return;
         }
     }
 }
@@ -3850,7 +3966,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.51  ", COL_NAVY);
+    printLine("MathSolverCE  v2.53 ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
