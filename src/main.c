@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.56
+ * MathSolverCE  v2.57
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -3084,7 +3084,7 @@ static void solveVietasFormulas(void)
         return;
     }
 
-    char lineBuf[52], n1[20], n2[20];
+    char lineBuf[52], n1[20];
 
     if (deg == 2) {
         startScreen("VIETA'S (QUADRATIC)", "[CLEAR] Back");
@@ -3164,8 +3164,7 @@ static void solveVietasFormulas(void)
 
         double sumSqR  = e1*e1 - 2.0*e2;           /* r1^2+r2^2+r3^2  */
         double sumCuR  = e1*e1*e1 - 3.0*e1*e2
-                       + 3.0*e3;                    /* r1^3+r2^3+r3^3  */
-        double sumPr12 = e1*e2 - 3.0*e3;            /* r1^2r2+...      */
+                       + 3.0*e3;                    /* r1^3+r2^3+r3^3  */        
         double sumSqProd = e2*e2 - 2.0*e1*e3;       /* r1^2r2^2+...    */
 
         printDivider();
@@ -4023,6 +4022,643 @@ static void solveRadicalSimplifier(void)
 
     waitContinue();
 }
+
+/* ═══════════════════════════════════════════════
+   SEQUENCES AND SERIES
+   ═══════════════════════════════════════════════ */
+
+/*
+ * Arithmetic Sequence solver.
+ *
+ * Known variables (user marks which are known):
+ *   a1 = first term
+ *   d  = common difference
+ *   n  = number of terms
+ *   an = nth term
+ *   Sn = sum of n terms
+ *
+ * Formulas:
+ *   an = a1 + (n-1)*d
+ *   Sn = n/2 * (2*a1 + (n-1)*d)
+ *      = n/2 * (a1 + an)
+ *
+ * Given any 3 of the 5 variables, the other 2 can be found.
+ * The solver asks which are known, collects their values,
+ * then computes and displays all 5.
+ */
+static void solveArithmeticSequence(void)
+{
+    RESET_CANCEL();
+    startScreen("ARITHMETIC SEQUENCE", "[CLEAR] Back");
+    printSubheader("an = a1 + (n-1)d");
+    printBlank();
+
+    /* Which variables are known? */
+    printLine("Mark known variables:", COL_NAVY);
+    printLine("1:a1  2:d  3:n  4:an  5:Sn", COL_ORANGE);
+    printLine("Enter 3 digits e.g. 124", COL_GRAY);
+    blit();
+
+    /* Collect the 3-digit selection string */
+    char sel[4] = "";
+    int  selLen = 0;
+    int  savedLine = gCurrentLine;
+
+    for (;;) {
+        int rowY = BODY_TOP + savedLine * LINE_H;
+        gfx_SetColor(COL_WHITE);
+        gfx_FillRectangle_NoClip(0, rowY - 1, SCR_W, LINE_H + 2);
+        char disp[8];
+        snprintf(disp, sizeof(disp), "%s_", sel);
+        gfx_SetTextFGColor(COL_BLACK);
+        gfx_SetTextBGColor(COL_WHITE);
+        gfx_PrintStringXY(disp, LMARGIN, rowY);
+        blit();
+
+        uint8_t key = waitForKey();
+        if (key == sk_Clear) { gUserCancelled = true; return; }
+        if (key == sk_Enter && selLen == 3) break;
+        if (key == sk_Del && selLen > 0) { sel[--selLen] = '\0'; continue; }
+
+        char digit = '\0';
+        if      (key == sk_1) digit = '1';
+        else if (key == sk_2) digit = '2';
+        else if (key == sk_3) digit = '3';
+        else if (key == sk_4) digit = '4';
+        else if (key == sk_5) digit = '5';
+
+        if (digit && selLen < 3) {
+            /* Avoid duplicates */
+            bool dup = false;
+            for (int i = 0; i < selLen; i++)
+                if (sel[i] == digit) { dup = true; break; }
+            if (!dup) { sel[selLen++] = digit; sel[selLen] = '\0'; }
+        }
+    }
+    gCurrentLine = savedLine + 1;
+
+    /* Parse which variables are known */
+    bool knowA1 = false, knowD  = false, knowN  = false,
+         knowAN = false, knowSN = false;
+    for (int i = 0; i < 3; i++) {
+        switch (sel[i]) {
+            case '1': knowA1 = true; break;
+            case '2': knowD  = true; break;
+            case '3': knowN  = true; break;
+            case '4': knowAN = true; break;
+            case '5': knowSN = true; break;
+        }
+    }
+
+    /* Collect values for known variables */
+    double a1=0, d=0, n=0, an=0, Sn=0;
+
+    startScreen("ARITHMETIC SEQUENCE", "[CLEAR] Back");
+    printSubheader("Enter known values:");
+    printBlank();
+
+    if (knowA1) { a1 = inputNumber("a1 = "); CHECK_CANCEL; }
+    if (knowD)  { d  = inputNumber("d  = "); CHECK_CANCEL; }
+    if (knowN)  { n  = inputNumber("n  = "); CHECK_CANCEL; }
+    if (knowAN) { an = inputNumber("an = "); CHECK_CANCEL; }
+    if (knowSN) { Sn = inputNumber("Sn = "); CHECK_CANCEL; }
+
+    /* ── Solve for unknowns ── */
+
+    /* Derive all 5 from the 3 known ones */
+    bool solved = false;
+    int  maxIter = 10;
+
+    for (int iter = 0; iter < maxIter && !solved; iter++) {
+        solved = true;   /* assume done; set false if anything changes */
+
+        /* an = a1 + (n-1)*d */
+        if (!knowAN && knowA1 && knowN && knowD) {
+            an = a1 + (n - 1.0) * d; knowAN = true; continue;
+        }
+        if (!knowA1 && knowAN && knowN && knowD) {
+            a1 = an - (n - 1.0) * d; knowA1 = true; continue;
+        }
+        if (!knowD && knowAN && knowA1 && knowN) {
+            if (fabs(n - 1.0) < MATH_EPS) { /* d undefined */ }
+            else { d = (an - a1) / (n - 1.0); knowD = true; continue; }
+        }
+        if (!knowN && knowAN && knowA1 && knowD) {
+            if (fabs(d) < MATH_EPS) { /* n undefined */ }
+            else { n = (an - a1) / d + 1.0; knowN = true; continue; }
+        }
+
+        /* Sn = n/2 * (2*a1 + (n-1)*d) */
+        if (!knowSN && knowA1 && knowN && knowD) {
+            Sn = (n / 2.0) * (2.0 * a1 + (n - 1.0) * d);
+            knowSN = true; continue;
+        }
+        if (!knowSN && knowA1 && knowAN && knowN) {
+            Sn = (n / 2.0) * (a1 + an); knowSN = true; continue;
+        }
+        if (!knowA1 && knowSN && knowN && knowD) {
+            a1 = (Sn / (n / 2.0) - (n - 1.0) * d) / 2.0;
+            knowA1 = true; continue;
+        }
+        if (!knowD && knowSN && knowN && knowA1) {
+            /* Sn = n*a1 + d*n*(n-1)/2 => d = (Sn - n*a1)*2/(n*(n-1)) */
+            double denom = n * (n - 1.0);
+            if (fabs(denom) > MATH_EPS) {
+                d = (Sn - n * a1) * 2.0 / denom;
+                knowD = true; continue;
+            }
+        }
+
+        solved = false;
+        break;
+    }
+
+    /* ── Display ── */
+    startScreen("ARITHMETIC SEQUENCE", "[ENTER] Done");
+    printSubheader("Results");
+    printBlank();
+
+    char nb[20], lineBuf[52];
+
+    if (!knowA1 || !knowD || !knowN || !knowAN || !knowSN) {
+        printLine("Could not solve fully.", COL_RED);
+        printLine("Check inputs (need 3).", COL_BLACK);
+        waitContinue();
+        return;
+    }
+
+    formatNumber(nb, sizeof(nb), a1);
+    snprintf(lineBuf, sizeof(lineBuf), "a1 = %s", nb);
+    printLine(lineBuf, COL_GREEN);
+
+    formatNumber(nb, sizeof(nb), d);
+    snprintf(lineBuf, sizeof(lineBuf), "d  = %s", nb);
+    printLine(lineBuf, COL_GREEN);
+
+    formatNumber(nb, sizeof(nb), n);
+    snprintf(lineBuf, sizeof(lineBuf), "n  = %s", nb);
+    printLine(lineBuf, COL_GREEN);
+
+    formatNumber(nb, sizeof(nb), an);
+    snprintf(lineBuf, sizeof(lineBuf), "an = %s", nb);
+    printLine(lineBuf, COL_GREEN);
+
+    formatNumber(nb, sizeof(nb), Sn);
+    snprintf(lineBuf, sizeof(lineBuf), "Sn = %s", nb);
+    printLine(lineBuf, COL_GREEN);
+
+    waitContinue();
+}
+
+/*
+ * Geometric Sequence solver.
+ *
+ * Variables:
+ *   a1 = first term
+ *   r  = common ratio
+ *   n  = number of terms
+ *   an = nth term
+ *   Sn = sum of n terms  (finite)
+ *   Si = sum to infinity (only when |r|<1)
+ *
+ * Formulas:
+ *   an = a1 * r^(n-1)
+ *   Sn = a1 * (1 - r^n) / (1 - r)   r != 1
+ *   Si = a1 / (1 - r)               |r| < 1
+ */
+static void solveGeometricSequence(void)
+{
+    RESET_CANCEL();
+    startScreen("GEOMETRIC SEQUENCE", "[CLEAR] Back");
+    printSubheader("an = a1 * r^(n-1)");
+    printBlank();
+
+    printLine("Mark known variables:", COL_NAVY);
+    printLine("1:a1  2:r  3:n  4:an  5:Sn", COL_ORANGE);
+    printLine("Enter 3 digits e.g. 124", COL_GRAY);
+    blit();
+
+    char sel[4] = "";
+    int  selLen = 0;
+    int  savedLine = gCurrentLine;
+
+    for (;;) {
+        int rowY = BODY_TOP + savedLine * LINE_H;
+        gfx_SetColor(COL_WHITE);
+        gfx_FillRectangle_NoClip(0, rowY - 1, SCR_W, LINE_H + 2);
+        char disp[8];
+        snprintf(disp, sizeof(disp), "%s_", sel);
+        gfx_SetTextFGColor(COL_BLACK);
+        gfx_SetTextBGColor(COL_WHITE);
+        gfx_PrintStringXY(disp, LMARGIN, rowY);
+        blit();
+
+        uint8_t key = waitForKey();
+        if (key == sk_Clear) { gUserCancelled = true; return; }
+        if (key == sk_Enter && selLen >= 2) break;
+        if (key == sk_Del && selLen > 0) { sel[--selLen] = '\0'; continue; }
+
+        char digit = '\0';
+        if      (key == sk_1) digit = '1';
+        else if (key == sk_2) digit = '2';
+        else if (key == sk_3) digit = '3';
+        else if (key == sk_4) digit = '4';
+        else if (key == sk_5) digit = '5';
+
+        if (digit && selLen < 3) {
+            bool dup = false;
+            for (int i = 0; i < selLen; i++)
+                if (sel[i] == digit) { dup = true; break; }
+            if (!dup) { sel[selLen++] = digit; sel[selLen] = '\0'; }
+        }
+    }
+    gCurrentLine = savedLine + 1;
+
+    bool knowA1 = false, knowR  = false, knowN  = false,
+         knowAN = false, knowSN = false;
+    for (int i = 0; sel[i]; i++) {
+        switch (sel[i]) {
+            case '1': knowA1 = true; break;
+            case '2': knowR  = true; break;
+            case '3': knowN  = true; break;
+            case '4': knowAN = true; break;
+            case '5': knowSN = true; break;
+        }
+    }
+
+    double a1=0, r=0, n=0, an=0, Sn=0;
+
+    startScreen("GEOMETRIC SEQUENCE", "[CLEAR] Back");
+    printSubheader("Enter known values:");
+    printBlank();
+
+    if (knowA1) { a1 = inputNumber("a1 = "); CHECK_CANCEL; }
+    if (knowR)  { r  = inputNumber("r  = "); CHECK_CANCEL; }
+    if (knowN)  { n  = inputNumber("n  = "); CHECK_CANCEL; }
+    if (knowAN) { an = inputNumber("an = "); CHECK_CANCEL; }
+    if (knowSN) { Sn = inputNumber("Sn = "); CHECK_CANCEL; }
+
+    /* ── Solve ── */
+    for (int iter = 0; iter < 10; iter++) {
+
+        /* an = a1 * r^(n-1) */
+        if (!knowAN && knowA1 && knowR && knowN) {
+            an = a1 * pow(r, n - 1.0); knowAN = true; continue;
+        }
+        if (!knowA1 && knowAN && knowR && knowN) {
+            double rPow = pow(r, n - 1.0);
+            if (fabs(rPow) > MATH_EPS) { a1 = an / rPow; knowA1 = true; continue; }
+        }
+        if (!knowR && knowAN && knowA1 && knowN && fabs(a1) > MATH_EPS) {
+            double exp = 1.0 / (n - 1.0);
+            r = pow(an / a1, exp);
+            knowR = true; continue;
+        }
+
+        /* Sn = a1*(1-r^n)/(1-r) */
+        if (!knowSN && knowA1 && knowR && knowN) {
+            if (fabs(r - 1.0) < MATH_EPS)
+                Sn = a1 * n;
+            else
+                Sn = a1 * (1.0 - pow(r, n)) / (1.0 - r);
+            knowSN = true; continue;
+        }
+        if (!knowA1 && knowSN && knowR && knowN) {
+            if (fabs(r - 1.0) < MATH_EPS) { a1 = Sn / n; }
+            else {
+                double denom = (1.0 - pow(r, n)) / (1.0 - r);
+                if (fabs(denom) > MATH_EPS) { a1 = Sn / denom; }
+            }
+            knowA1 = true; continue;
+        }
+
+        break;
+    }
+
+    /* ── Display ── */
+    startScreen("GEOMETRIC SEQUENCE", "[ENTER] Done");
+    printSubheader("Results");
+    printBlank();
+
+    char nb[20], lineBuf[52];
+
+    if (knowA1) {
+        formatNumber(nb, sizeof(nb), a1);
+        snprintf(lineBuf, sizeof(lineBuf), "a1 = %s", nb);
+        printLine(lineBuf, COL_GREEN);
+    }
+    if (knowR) {
+        formatNumber(nb, sizeof(nb), r);
+        snprintf(lineBuf, sizeof(lineBuf), "r  = %s", nb);
+        printLine(lineBuf, COL_GREEN);
+    }
+    if (knowN) {
+        formatNumber(nb, sizeof(nb), n);
+        snprintf(lineBuf, sizeof(lineBuf), "n  = %s", nb);
+        printLine(lineBuf, COL_GREEN);
+    }
+    if (knowAN) {
+        formatNumber(nb, sizeof(nb), an);
+        snprintf(lineBuf, sizeof(lineBuf), "an = %s", nb);
+        printLine(lineBuf, COL_GREEN);
+    }
+    if (knowSN) {
+        formatNumber(nb, sizeof(nb), Sn);
+        snprintf(lineBuf, sizeof(lineBuf), "Sn = %s", nb);
+        printLine(lineBuf, COL_GREEN);
+    }
+
+    /* Infinite sum if |r| < 1 and a1 known */
+    if (knowA1 && knowR && fabs(r) < 1.0 - MATH_EPS) {
+        double Si = a1 / (1.0 - r);
+        formatNumber(nb, sizeof(nb), Si);
+        snprintf(lineBuf, sizeof(lineBuf), "S-inf = %s", nb);
+        printLine(lineBuf, COL_BLACK);
+    }
+
+    waitContinue();
+}
+
+/*
+ * Arithmetic Means solver.
+ * Insert k arithmetic means between two values a and b.
+ * The full sequence is: a, m1, m2, ..., mk, b
+ * Total terms = k+2, so d = (b-a)/(k+1).
+ */
+static void solveArithmeticMeans(void)
+{
+    RESET_CANCEL();
+    startScreen("ARITHMETIC MEANS", "[CLEAR] Back");
+    printSubheader("Insert k means between a,b");
+    printBlank();
+
+    double a = inputNumber("First value a = ");  CHECK_CANCEL;
+    double b = inputNumber("Last value b  = ");  CHECK_CANCEL;
+    double k = inputNumber("# of means k  = ");  CHECK_CANCEL;
+
+    int numMeans = (int)round(k);
+    if (numMeans < 1) {
+        printDivider();
+        printLine("k must be >= 1", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    double d = (b - a) / (double)(numMeans + 1);
+
+    startScreen("ARITHMETIC MEANS", "[ENTER] Done");
+    printSubheader("Results");
+    printBlank();
+
+    char nb[20], lineBuf[52];
+
+    formatNumber(nb, sizeof(nb), d);
+    snprintf(lineBuf, sizeof(lineBuf), "d = %s", nb);
+    printLine(lineBuf, COL_BLACK);
+    printBlank();
+
+    /* Print full sequence (cap display at screen) */
+    printLine("Sequence:", COL_ORANGE);
+    for (int i = 0; i <= numMeans + 1 && gCurrentLine < MAX_LINES - 1; i++) {
+        double val = a + i * d;
+        formatNumber(nb, sizeof(nb), val);
+        snprintf(lineBuf, sizeof(lineBuf), "  term %d = %s", i + 1, nb);
+        printLine(lineBuf, COL_GREEN);
+    }
+    if (numMeans + 2 > MAX_LINES - 3)
+        printLine("  (truncated — too many)", COL_GRAY);
+
+    /* Sum of the means only */
+    double sumMeans = 0.0;
+    for (int i = 1; i <= numMeans; i++) sumMeans += a + i * d;
+    formatNumber(nb, sizeof(nb), sumMeans);
+    snprintf(lineBuf, sizeof(lineBuf), "Sum of means = %s", nb);
+    printLine(lineBuf, COL_BLACK);
+
+    waitContinue();
+}
+
+/*
+ * Geometric Means solver.
+ * Insert k geometric means between a and b.
+ * r = (b/a)^(1/(k+1))
+ */
+static void solveGeometricMeans(void)
+{
+    RESET_CANCEL();
+    startScreen("GEOMETRIC MEANS", "[CLEAR] Back");
+    printSubheader("Insert k means between a,b");
+    printBlank();
+
+    double a = inputNumber("First value a = "); CHECK_CANCEL;
+    double b = inputNumber("Last value b  = "); CHECK_CANCEL;
+    double k = inputNumber("# of means k  = "); CHECK_CANCEL;
+
+    int numMeans = (int)round(k);
+
+    printDivider();
+    char nb[20], lineBuf[52];
+
+    if (numMeans < 1) {
+        printLine("k must be >= 1", COL_RED);
+        waitContinue();
+        return;
+    }
+    if (fabs(a) < MATH_EPS) {
+        printLine("a cannot be 0", COL_RED);
+        waitContinue();
+        return;
+    }
+    if ((a < 0 && b > 0) || (a > 0 && b < 0)) {
+        printLine("a and b must have same sign", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    double r = pow(b / a, 1.0 / (double)(numMeans + 1));
+
+    startScreen("GEOMETRIC MEANS", "[ENTER] Done");
+    printSubheader("Results");
+    printBlank();
+
+    formatNumber(nb, sizeof(nb), r);
+    snprintf(lineBuf, sizeof(lineBuf), "r = %s", nb);
+    printLine(lineBuf, COL_BLACK);
+    printBlank();
+
+    printLine("Sequence:", COL_ORANGE);
+    for (int i = 0; i <= numMeans + 1 && gCurrentLine < MAX_LINES - 1; i++) {
+        double val = a * pow(r, (double)i);
+        formatNumber(nb, sizeof(nb), val);
+        snprintf(lineBuf, sizeof(lineBuf), "  term %d = %s", i + 1, nb);
+        printLine(lineBuf, COL_GREEN);
+    }
+
+    /* Single geometric mean between two numbers */
+    if (numMeans == 1) {
+        double gm = sqrt(fabs(a * b));
+        if (a < 0) gm = -gm;
+        formatNumber(nb, sizeof(nb), gm);
+        snprintf(lineBuf, sizeof(lineBuf), "Geo mean = %s", nb);
+        printLine(lineBuf, COL_BLACK);
+    }
+
+    waitContinue();
+}
+
+/*
+ * Harmonic Mean solver.
+ * H = n / (1/a1 + 1/a2 + ... + 1/an)
+ * For two values: H = 2ab/(a+b)
+ */
+static void solveHarmonicMean(void)
+{
+    RESET_CANCEL();
+    startScreen("HARMONIC MEAN", "[CLEAR] Back");
+    printSubheader("H = n/(1/a1+...+1/an)");
+    printBlank();
+
+    double countVal = inputNumber("How many values? "); CHECK_CANCEL;
+    int count = (int)round(countVal);
+
+    if (count < 2) {
+        printDivider();
+        printLine("Enter at least 2", COL_RED);
+        waitContinue();
+        return;
+    }
+    if (count > 10) {
+        printDivider();
+        printLine("Max 10 values", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    double recSum = 0.0;
+    char prompt[12];
+    for (int i = 0; i < count; i++) {
+        snprintf(prompt, sizeof(prompt), "a%d = ", i + 1);
+        double val = inputNumber(prompt); CHECK_CANCEL;
+        if (fabs(val) < MATH_EPS) {
+            printDivider();
+            printLine("Values cannot be 0", COL_RED);
+            waitContinue();
+            return;
+        }
+        recSum += 1.0 / val;
+    }
+
+    double H = (double)count / recSum;
+
+    printDivider();
+    char nb[20], lineBuf[52];
+    formatNumber(nb, sizeof(nb), H);
+    snprintf(lineBuf, sizeof(lineBuf), "H = %s", nb);
+    printLine(lineBuf, COL_GREEN);
+
+    waitContinue();
+}
+
+/*
+ * Sum of Special Series.
+ * Covers:
+ *   1. Sum of first n integers:        n(n+1)/2
+ *   2. Sum of first n squares:         n(n+1)(2n+1)/6
+ *   3. Sum of first n cubes:           [n(n+1)/2]^2
+ *   4. Sum of first n odd integers:    n^2
+ *   5. Sum of first n even integers:   n(n+1)
+ *   6. Triangular number sum:          sum of 1+2+...+n = n(n+1)/2
+ */
+static void solveSpecialSeries(void)
+{
+    RESET_CANCEL();
+
+    const char *opts[] = {
+        "Sum 1+2+...+n",
+        "Sum 1^2+2^2+...+n^2",
+        "Sum 1^3+2^3+...+n^3",
+        "Sum odd: 1+3+...+(2n-1)",
+        "Sum even: 2+4+...+2n",
+        "Back"
+    };
+    int sel = showMenu("SPECIAL SERIES", opts, 6);
+    if (sel < 0 || sel == 5) return;
+
+    startScreen("SPECIAL SERIES", "[CLEAR] Back");
+    printSubheader("Enter n:");
+    printBlank();
+
+    double nVal = inputNumber("n = "); CHECK_CANCEL;
+    int n = (int)round(nVal);
+
+    if (n < 1) {
+        printDivider();
+        printLine("n must be >= 1", COL_RED);
+        waitContinue();
+        return;
+    }
+
+    printDivider();
+    char nb[24], lineBuf[52];
+    double result = 0.0;
+
+    switch (sel) {
+        case 0:
+            result = (double)n * (n + 1) / 2.0;
+            snprintf(lineBuf, sizeof(lineBuf), "1+2+...+%d =", n);
+            break;
+        case 1:
+            result = (double)n * (n + 1) * (2 * n + 1) / 6.0;
+            snprintf(lineBuf, sizeof(lineBuf), "1^2+...+%d^2 =", n);
+            break;
+        case 2: {
+            double tri = (double)n * (n + 1) / 2.0;
+            result = tri * tri;
+            snprintf(lineBuf, sizeof(lineBuf), "1^3+...+%d^3 =", n);
+            break;
+        }
+        case 3:
+            result = (double)n * n;
+            snprintf(lineBuf, sizeof(lineBuf), "Sum first %d odds =", n);
+            break;
+        case 4:
+            result = (double)n * (n + 1);
+            snprintf(lineBuf, sizeof(lineBuf), "Sum first %d evens =", n);
+            break;
+        default: break;
+    }
+
+    printLine(lineBuf, COL_BLACK);
+    formatNumber(nb, sizeof(nb), result);
+    printLine(nb, COL_GREEN);
+    waitContinue();
+}
+
+/* ── Menu ── */
+static void menuSequencesAndSeries(void)
+{
+    const char *options[] = {
+        "Arithmetic Sequence",
+        "Geometric Sequence",
+        "Arithmetic Means",
+        "Geometric Means",
+        "Harmonic Mean",
+        "Special Series",
+        "Back"
+    };
+    int sel;
+    while ((sel = showMenu("SEQUENCES & SERIES", options, 7)) >= 0) {
+        switch (sel) {
+            case 0: solveArithmeticSequence(); break;
+            case 1: solveGeometricSequence();  break;
+            case 2: solveArithmeticMeans();    break;
+            case 3: solveGeometricMeans();     break;
+            case 4: solveHarmonicMean();       break;
+            case 5: solveSpecialSeries();      break;
+            case 6: return;
+        }
+    }
+}
 /* ═══════════════════════════════════════════════
    SECTION 3 — FORMULA REFERENCE
    ═══════════════════════════════════════════════ */
@@ -4261,20 +4897,22 @@ static void runMainMenu(void)
         "Absolute Value",
         "Number Theory",
         "Theory of Equations",
+        "Sequences & Series",
         "Formulas & Reference",
         "Quit"
     };
     int sel;
     for (;;) {
         sel = showMenu("MATH SOLVER CE", options, 6);
-        if (sel < 0 || sel == 5) break;
+        if (sel < 0 || sel == 6) break;
         switch (sel) {
             case 0: menuEquationsAndInequalities(); break;
             case 1: menuAbsoluteValue();            break;
             case 2: menuNumberTheory(); break;
             case 3: menuTheoryOfEquations(); break;
-            case 4: menuReference();    break;
-            case 5: return;
+            case 4: menuSequencesAndSeries(); break;
+            case 5: menuReference();    break;
+            case 6: return;
         }
     }
 }
@@ -4295,7 +4933,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.56 ", COL_NAVY);
+    printLine("MathSolverCE  v2.57 ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
