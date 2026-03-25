@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.57
+ * MathSolverCE  v2.58
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -449,6 +449,53 @@ static void formatNumber(char *outBuf, size_t bufSize, double value)
 }
 
 /* ═══════════════════════════════════════════════
+   FRACTION UTILITIES
+   toFraction  : best rational p/q (|q| ≤ maxDen)
+                 via continued fractions
+   formatFraction : formats as "p/q" or integer;
+                    falls back to formatNumber if
+                    no clean fraction is found.
+   ═══════════════════════════════════════════════ */
+
+static void toFraction(double val, long *num, long *den, long maxDen)
+{
+    if (fabs(val) < MATH_EPS) { *num = 0; *den = 1; return; }
+    int    negative = (val < 0.0);
+    double x        = fabs(val);
+    long   h0 = 1, h1 = 0, k0 = 0, k1 = 1;
+
+    for (int i = 0; i < 64; i++) {
+        long   a  = (long)x;
+        long   h2 = a * h0 + h1;
+        long   k2 = a * k0 + k1;
+        if (k2 > maxDen || k2 < 0) break;
+        h1 = h0; h0 = h2;
+        k1 = k0; k0 = k2;
+        double rem = x - (double)a;
+        if (rem < 1e-12) break;
+        x = 1.0 / rem;
+    }
+    if (k0 == 0) { k0 = 1; h0 = (long)fabs(val); }
+    *num = negative ? -h0 : h0;
+    *den = k0;
+}
+
+/* Format val as reduced fraction if a clean one exists (|q|≤9999),
+   otherwise fall back to formatNumber decimal output. */
+static void formatFraction(char *buf, size_t sz, double val)
+{
+    long n, d;
+    toFraction(val, &n, &d, 9999);
+    if (d > 0 &&
+        fabs((double)n / (double)d - val) < 1e-7 * (1.0 + fabs(val))) {
+        if (d == 1) snprintf(buf, sz, "%ld",       n);
+        else        snprintf(buf, sz, "%ld/%ld", n, d);
+    } else {
+        formatNumber(buf, sz, val);
+    }
+}
+
+/* ═══════════════════════════════════════════════
    MENU ENGINE
    ═══════════════════════════════════════════════ */
 
@@ -489,6 +536,7 @@ static int showMenu(const char *title, const char *options[], int optionCount)
             case sk_6: sel = 5; break;
             case sk_7: sel = 6; break;
             case sk_8: sel = 7; break;
+            case sk_9: sel = 8; break;
             default:   break;
         }
         if (sel >= 0 && sel < optionCount) return sel;
@@ -4509,7 +4557,7 @@ static void solveGeometricMeans(void)
 /*
  * Harmonic Mean solver.
  * H = n / (1/a1 + 1/a2 + ... + 1/an)
- * For two values: H = 2ab/(a+b)
+ * Output shown as reduced fraction when possible.
  */
 static void solveHarmonicMean(void)
 {
@@ -4551,14 +4599,23 @@ static void solveHarmonicMean(void)
     double H = (double)count / recSum;
 
     printDivider();
-    char nb[20], lineBuf[52];
-    formatNumber(nb, sizeof(nb), H);
+    char nb[24], lineBuf[52];
+
+    /* Fraction form */
+    formatFraction(nb, sizeof(nb), H);
     snprintf(lineBuf, sizeof(lineBuf), "H = %s", nb);
     printLine(lineBuf, COL_GREEN);
 
+    /* Also show decimal if it differs from fraction string */
+    char decBuf[20];
+    formatNumber(decBuf, sizeof(decBuf), H);
+    if (strcmp(nb, decBuf) != 0) {
+        snprintf(lineBuf, sizeof(lineBuf), "  = %s (decimal)", decBuf);
+        printLine(lineBuf, COL_BLACK);
+    }
+
     waitContinue();
 }
-
 /*
  * Sum of Special Series.
  * Covers:
@@ -4634,6 +4691,672 @@ static void solveSpecialSeries(void)
     waitContinue();
 }
 
+
+/* ═══════════════════════════════════════════════
+   ADVANCED SEQUENCES & SERIES SOLVERS
+   ═══════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────
+   AP: TWO GIVEN TERMS  →  find a1, d, T_n, S_n
+   e.g. T7 = -4, T77 = -214, find S777
+   ───────────────────────────────────────────── */
+static void solveAPTwoTerms(void)
+{
+    RESET_CANCEL();
+    startScreen("AP: TWO GIVEN TERMS", "[CLEAR] Back");
+    printSubheader("T_p = Vp, T_q = Vq");
+    printBlank();
+
+    double pDbl = inputNumber("p (1st position) = "); CHECK_CANCEL;
+    double vp   = inputNumber("T_p value        = "); CHECK_CANCEL;
+    double qDbl = inputNumber("q (2nd position) = "); CHECK_CANCEL;
+    double vq   = inputNumber("T_q value        = "); CHECK_CANCEL;
+    double nDbl = inputNumber("Find S_n, n =      "); CHECK_CANCEL;
+
+    int p = (int)round(pDbl);
+    int q = (int)round(qDbl);
+    int n = (int)round(nDbl);
+
+    printDivider();
+    char nb[24], lb[52];
+
+    if (p == q) { printLine("p and q must differ", COL_RED); waitContinue(); return; }
+    if (n < 1)  { printLine("n must be >= 1",       COL_RED); waitContinue(); return; }
+
+    double d  = (vq - vp) / (double)(q - p);
+    double a1 = vp - (double)(p - 1) * d;
+    double an = a1 + (double)(n - 1) * d;
+    double Sn = (double)n / 2.0 * (a1 + an);
+
+    formatFraction(nb, sizeof(nb), a1);
+    snprintf(lb, sizeof(lb), "a1 = %s", nb);        printLine(lb, COL_GREEN);
+
+    formatFraction(nb, sizeof(nb), d);
+    snprintf(lb, sizeof(lb), "d  = %s", nb);        printLine(lb, COL_GREEN);
+
+    formatFraction(nb, sizeof(nb), an);
+    snprintf(lb, sizeof(lb), "a%d = %s", n, nb);   printLine(lb, COL_GREEN);
+
+    formatFraction(nb, sizeof(nb), Sn);
+    snprintf(lb, sizeof(lb), "S%d = %s", n, nb);   printLine(lb, COL_GREEN);
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   CONSECUTIVE ODD / EVEN INTEGER SUM
+   Mode A: known first & last  →  find sum & count
+   Mode B: known first & sum   →  find last term
+   (AP with d = 2)
+   ───────────────────────────────────────────── */
+static void solveConsecutiveOddEven(void)
+{
+    RESET_CANCEL();
+    startScreen("ODD/EVEN INT. SUM", "[CLEAR] Back");
+    printSubheader("Consecutive odd or even, d=2");
+    printBlank();
+
+    printLine("1: Find sum (know first, last)", COL_BLACK);
+    printLine("2: Find last (know first, sum)",  COL_BLACK);
+    blit();
+
+    uint8_t mc;
+    do { mc = waitForKey(); }
+    while (mc != sk_1 && mc != sk_2 && mc != sk_Clear);
+    if (mc == sk_Clear) { gUserCancelled = true; return; }
+
+    startScreen("ODD/EVEN INT. SUM", "[CLEAR] Back");
+    printSubheader("d = 2  (consecutive parity)");
+    printBlank();
+
+    char nb[24], lb[52];
+
+    if (mc == sk_1) {
+        /* ── Mode A ── */
+        double fDbl = inputNumber("First term = "); CHECK_CANCEL;
+        double lDbl = inputNumber("Last term  = "); CHECK_CANCEL;
+        int first = (int)round(fDbl);
+        int last  = (int)round(lDbl);
+
+        printDivider();
+        if (((last - first) % 2) != 0) {
+            printLine("Must have same parity", COL_RED);
+            waitContinue(); return;
+        }
+        int    k   = (last - first) / 2 + 1;
+        double sum = (double)k * (double)(first + last) / 2.0;
+
+        snprintf(lb, sizeof(lb), "# terms = %d", k);  printLine(lb, COL_BLACK);
+        formatFraction(nb, sizeof(nb), sum);
+        snprintf(lb, sizeof(lb), "Sum = %s", nb);      printLine(lb, COL_GREEN);
+
+    } else {
+        /* ── Mode B: find last term given first and desired sum ──
+         *
+         * Let k = number of terms.
+         * last  = first + 2(k-1)
+         * sum   = k*(first + last)/2
+         *       = k*(2*first + 2(k-1))/2
+         *       = k*(first + k - 1)
+         * → k^2 + (first-1)*k - sum = 0
+         */
+        double fDbl   = inputNumber("First term = "); CHECK_CANCEL;
+        double sumDbl = inputNumber("Sum        = "); CHECK_CANCEL;
+        int    first  = (int)round(fDbl);
+        double sum    = sumDbl;
+
+        double bCoef = (double)(first - 1);
+        double disc  = bCoef * bCoef + 4.0 * sum;
+
+        printDivider();
+        if (disc < -MATH_EPS) {
+            printLine("No real solution", COL_RED);
+            waitContinue(); return;
+        }
+
+        /* Two roots; pick the positive integer one */
+        double k1 = (-bCoef + sqrt(fabs(disc))) / 2.0;
+        double k2 = (-bCoef - sqrt(fabs(disc))) / 2.0;
+        int ki = -1;
+        if (k1 > 0.5 && fabs(k1 - round(k1)) < 0.01) ki = (int)round(k1);
+        else if (k2 > 0.5 && fabs(k2 - round(k2)) < 0.01) ki = (int)round(k2);
+
+        if (ki < 1) {
+            printLine("No integer solution", COL_RED);
+            waitContinue(); return;
+        }
+
+        int last = first + 2 * (ki - 1);
+
+        snprintf(lb, sizeof(lb), "# terms = %d", ki);  printLine(lb, COL_BLACK);
+        snprintf(lb, sizeof(lb), "Last term = %d", last);
+        printLine(lb, COL_GREEN);
+
+        /* Verification */
+        double chk = (double)ki * (double)(first + last) / 2.0;
+        snprintf(lb, sizeof(lb), "Verify: sum = %.0f", chk);
+        printLine(lb, fabs(chk - sum) < 0.5 ? COL_GRAY : COL_RED);
+    }
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   AP ARITHMETIC MEANS BETWEEN TWO ENDPOINTS
+   Given n-term AP with a1 and a_n known,
+   finds sum of the (n-2) interior terms.
+   e.g. 5-term AP, a1=18, a5=-10 → sum of a2+a3+a4
+   ───────────────────────────────────────────── */
+static void solveArithMeansSum(void)
+{
+    RESET_CANCEL();
+    startScreen("SUM OF ARITH. MEANS", "[CLEAR] Back");
+    printSubheader("n-term AP, sum middle terms");
+    printBlank();
+
+    double nDbl    = inputNumber("Total terms n    = "); CHECK_CANCEL;
+    double firstDbl = inputNumber("First term a1    = "); CHECK_CANCEL;
+    double lastDbl  = inputNumber("Last term a_n    = "); CHECK_CANCEL;
+
+    int n = (int)round(nDbl);
+    printDivider();
+
+    if (n < 3) {
+        printLine("Need n >= 3 for means", COL_RED);
+        waitContinue(); return;
+    }
+
+    /* Sum of ALL n terms */
+    double Sn   = (double)n / 2.0 * (firstDbl + lastDbl);
+    /* Remove first and last to get sum of the (n-2) means */
+    double sumMeans = Sn - firstDbl - lastDbl;
+
+    char nb[24], lb[52];
+
+    double d = (lastDbl - firstDbl) / (double)(n - 1);
+    formatFraction(nb, sizeof(nb), d);
+    snprintf(lb, sizeof(lb), "d = %s", nb);             printLine(lb, COL_BLACK);
+
+    snprintf(lb, sizeof(lb), "S%d (all)  = %.4g", n, Sn);
+    printLine(lb, COL_BLACK);
+
+    formatFraction(nb, sizeof(nb), sumMeans);
+    snprintf(lb, sizeof(lb), "Sum of %d means = %s", n - 2, nb);
+    printLine(lb, COL_GREEN);
+
+    /* List the means for reference */
+    if (n - 2 <= 6) {
+        printBlank();
+        printLine("Means:", COL_ORANGE);
+        for (int i = 1; i <= n - 2 && gCurrentLine < MAX_LINES - 1; i++) {
+            double val = firstDbl + (double)i * d;
+            formatFraction(nb, sizeof(nb), val);
+            snprintf(lb, sizeof(lb), "  a%d = %s", i + 1, nb);
+            printLine(lb, COL_GREEN);
+        }
+    }
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   ALTERNATING SIGN SERIES  (magnitudes form AP)
+   T_k = (-1)^(k+1) * (a + (k-1)*d)
+   e.g. 2, -4, 6, -8, ...  (a=2, d=2)
+   or  -2, 4, -6, 8, ...   (a=2, d=2, first negative)
+
+   Mode A: enter n directly.
+   Mode B: enter last term value → solver finds n.
+
+   Closed-form:
+     n even → S = -sign1 * (n/2) * d
+     n odd  → S = sign1 * (a + ((n-1)/2)*d)
+               which equals a1 + sign1*(n-1)/2 * d
+   ───────────────────────────────────────────── */
+static void solveAlternatingSeries(void)
+{
+    RESET_CANCEL();
+    startScreen("ALTERNATING SERIES", "[CLEAR] Back");
+    printSubheader("+a,-b,+c,... magnitudes AP");
+    printBlank();
+
+    printLine("1: Know n",                 COL_BLACK);
+    printLine("2: Know last term (find n)", COL_BLACK);
+    blit();
+
+    uint8_t mc;
+    do { mc = waitForKey(); }
+    while (mc != sk_1 && mc != sk_2 && mc != sk_Clear);
+    if (mc == sk_Clear) { gUserCancelled = true; return; }
+
+    startScreen("ALTERNATING SERIES", "[CLEAR] Back");
+    printSubheader("Enter series parameters:");
+    printBlank();
+
+    double a1 = inputNumber("First term (signed)    = "); CHECK_CANCEL;
+    double d  = inputNumber("d of magnitudes (d>=0) = "); CHECK_CANCEL;
+
+    char nb[24], lb[52];
+    int n;
+
+    if (mc == sk_2) {
+        double anDbl  = inputNumber("Last term (signed)     = "); CHECK_CANCEL;
+        double a_abs  = fabs(a1);
+        double an_abs = fabs(anDbl);
+
+        if (fabs(d) < MATH_EPS) {
+            /* Constant magnitude — all terms equal, find count */
+            if (fabs(a_abs - an_abs) > 1e-6) {
+                printDivider(); printLine("d=0 but |last|!=|first|", COL_RED);
+                waitContinue(); return;
+            }
+            /* n undefined without more info */
+            printDivider(); printLine("d=0: n not uniquely found", COL_RED);
+            waitContinue(); return;
+        }
+        double kf = (an_abs - a_abs) / d + 1.0;
+        n = (int)round(kf);
+        if (n < 1 || fabs(kf - (double)n) > 0.02) {
+            printDivider(); printLine("No integer n found", COL_RED);
+            waitContinue(); return;
+        }
+        snprintf(lb, sizeof(lb), "n = %d terms", n);
+        printLine(lb, COL_BLACK);
+    } else {
+        double nDbl = inputNumber("# of terms n           = "); CHECK_CANCEL;
+        n = (int)round(nDbl);
+        if (n < 1) {
+            printDivider(); printLine("n must be >= 1", COL_RED);
+            waitContinue(); return;
+        }
+    }
+
+    printDivider();
+
+    double sign1 = (a1 >= 0.0) ? 1.0 : -1.0;
+    double absa1 = fabs(a1);
+    double sum;
+
+    if (n % 2 == 0)
+        sum = -sign1 * (double)(n / 2) * d;
+    else
+        sum = sign1 * (absa1 + (double)((n - 1) / 2) * d);
+
+    /* Show last term */
+    double lastAbs  = absa1 + (double)(n - 1) * d;
+    double lastSign = sign1 * ((n % 2 == 1) ? 1.0 : -1.0);
+    formatFraction(nb, sizeof(nb), lastSign * lastAbs);
+    snprintf(lb, sizeof(lb), "Last term = %s", nb); printLine(lb, COL_BLACK);
+
+    formatFraction(nb, sizeof(nb), sum);
+    snprintf(lb, sizeof(lb), "Sum = %s", nb);        printLine(lb, COL_GREEN);
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   ALTERNATING SQUARES SUM
+   n^2 - (n-1)^2 + (n-2)^2 - ... +/- 1^2
+   = n(n+1)/2  for any positive integer n.
+   ───────────────────────────────────────────── */
+static void solveAlternatingSquares(void)
+{
+    RESET_CANCEL();
+    startScreen("ALT. SQUARES SUM", "[CLEAR] Back");
+    printSubheader("n^2-(n-1)^2+...+/-1^2");
+    printBlank();
+
+    double nDbl = inputNumber("Starting n = "); CHECK_CANCEL;
+    int n = (int)round(nDbl);
+
+    printDivider();
+    char lb[52];
+
+    if (n < 1) { printLine("n must be >= 1", COL_RED); waitContinue(); return; }
+
+    /*
+     * Proof:
+     *   Pair consecutive terms when n is even:
+     *   (n^2-(n-1)^2) + ((n-2)^2-(n-3)^2) + ...
+     *   Each pair (2k)^2-(2k-1)^2 = 4k-1, summing k=1..n/2 gives n(n+1)/2.
+     *   For odd n, add the last term 1 to the sum for n-1: (n-1)n/2 + 1 = n(n+1)/2.
+     *   So the formula n(n+1)/2 holds for all n >= 1.
+     */
+    long long result = (long long)n * ((long long)n + 1LL) / 2LL;
+
+    if (n >= 2)
+        snprintf(lb, sizeof(lb), "%d^2-%d^2+...+/-1^2 =", n, n - 1);
+    else
+        snprintf(lb, sizeof(lb), "1^2 =");
+    printLine(lb, COL_BLACK);
+
+    snprintf(lb, sizeof(lb), "%lld",  result); printLine(lb, COL_GREEN);
+    printLine("Formula: n(n+1)/2",             COL_GRAY);
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   SQRT(2) GEOMETRIC SEQUENCE
+   Terms of the form a + b*sqrt(2).
+   Uses exact ring arithmetic — no rounding.
+   (p + q*sqrt2) * (c + d*sqrt2)
+       = (pc+2qd) + (pd+qc)*sqrt2
+   ───────────────────────────────────────────── */
+static void solveSqrt2Sequence(void)
+{
+    RESET_CANCEL();
+    startScreen("SQRT(2) GEO. SEQ.", "[CLEAR] Back");
+    printSubheader("T_n = a + b*sqrt(2)");
+    printBlank();
+
+    printLine("Enter T1 = a + b*sqrt(2):", COL_NAVY);
+    double a1a = inputNumber("T1 coefficient a = "); CHECK_CANCEL;
+    double a1b = inputNumber("T1 coefficient b = "); CHECK_CANCEL;
+
+    printLine("Enter ratio r = c + d*sqrt(2):", COL_NAVY);
+    double rc  = inputNumber("r coefficient c  = "); CHECK_CANCEL;
+    double rd  = inputNumber("r coefficient d  = "); CHECK_CANCEL;
+
+    double nDbl = inputNumber("Find term T_n, n = "); CHECK_CANCEL;
+    int n = (int)round(nDbl);
+
+    printDivider();
+    char nb1[20], nb2[20], lb[52];
+
+    if (n < 1) { printLine("n must be >= 1", COL_RED); waitContinue(); return; }
+
+    /*
+     * Compute r^(n-1) by repeated multiplication in the ring Z[sqrt2].
+     * Start with rPow = 1 + 0*sqrt2, multiply by r n-1 times.
+     */
+    double rA = 1.0, rB = 0.0;
+    for (int i = 0; i < n - 1; i++) {
+        double newA = rA * rc + 2.0 * rB * rd;
+        double newB = rA * rd + rB * rc;
+        rA = newA;
+        rB = newB;
+    }
+
+    /* T_n = T1 * r^(n-1) in the ring */
+    double tnA = a1a * rA + 2.0 * a1b * rB;
+    double tnB = a1a * rB + a1b * rA;
+
+    snprintf(lb, sizeof(lb), "T%d = a + b*sqrt(2):", n);
+    printLine(lb, COL_BLACK);
+
+    formatFraction(nb1, sizeof(nb1), tnA);
+    snprintf(lb, sizeof(lb), "a = %s", nb1);  printLine(lb, COL_GREEN);
+
+    formatFraction(nb2, sizeof(nb2), tnB);
+    snprintf(lb, sizeof(lb), "b = %s", nb2);  printLine(lb, COL_GREEN);
+
+    snprintf(lb, sizeof(lb), "(%s, %s)", nb1, nb2);
+    printLine(lb, COL_GREEN);
+
+    char decBuf[20];
+    formatNumber(decBuf, sizeof(decBuf), tnA + tnB * 1.41421356237);
+    snprintf(lb, sizeof(lb), "~ %s (decimal)", decBuf);
+    printLine(lb, COL_BLACK);
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   GEO SEQUENCE: SUM OF TWO SPECIFIC TERMS
+   Computes T_p + T_q with fraction output.
+   e.g. a1=2/3, r=1/2, find T4+T5
+   ───────────────────────────────────────────── */
+static void solveGeoSumTwoTerms(void)
+{
+    RESET_CANCEL();
+    startScreen("GEO: T_p + T_q", "[CLEAR] Back");
+    printSubheader("Find T_p + T_q as fraction");
+    printBlank();
+
+    double a1   = inputNumber("a1 = "); CHECK_CANCEL;
+    double r    = inputNumber("r  = "); CHECK_CANCEL;
+    double pDbl = inputNumber("p  = "); CHECK_CANCEL;
+    double qDbl = inputNumber("q  = "); CHECK_CANCEL;
+
+    int p = (int)round(pDbl);
+    int q = (int)round(qDbl);
+
+    printDivider();
+    char nb[24], lb[52];
+
+    if (p < 1 || q < 1) {
+        printLine("p, q must be >= 1", COL_RED);
+        waitContinue(); return;
+    }
+
+    double Tp   = a1 * pow(r, (double)(p - 1));
+    double Tq   = a1 * pow(r, (double)(q - 1));
+    double sumT = Tp + Tq;
+
+    formatFraction(nb, sizeof(nb), Tp);
+    snprintf(lb, sizeof(lb), "T%d = %s", p, nb);        printLine(lb, COL_BLACK);
+
+    formatFraction(nb, sizeof(nb), Tq);
+    snprintf(lb, sizeof(lb), "T%d = %s", q, nb);        printLine(lb, COL_BLACK);
+
+    printDivider();
+    formatFraction(nb, sizeof(nb), sumT);
+    snprintf(lb, sizeof(lb), "T%d+T%d = %s", p, q, nb); printLine(lb, COL_GREEN);
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   INFINITE GEOMETRIC SERIES — FIND RATIO r
+   Given a1 and S_inf, solves for r:
+   S_inf = a1 / (1 - r)  →  r = 1 - a1/S_inf
+   e.g. a1=4/3, S_inf=4/3  →  r=0
+   ───────────────────────────────────────────── */
+static void solveInfiniteGeoFindR(void)
+{
+    RESET_CANCEL();
+    startScreen("INF. GEO: FIND r", "[CLEAR] Back");
+    printSubheader("S_inf=a1/(1-r), given S_inf");
+    printBlank();
+
+    double a1   = inputNumber("a1 (first term) = "); CHECK_CANCEL;
+    double Sinf = inputNumber("S_inf           = "); CHECK_CANCEL;
+
+    printDivider();
+    char nb[24], lb[52];
+
+    if (fabs(Sinf) < MATH_EPS) {
+        printLine("S_inf cannot be 0", COL_RED); waitContinue(); return;
+    }
+    if (fabs(a1) < MATH_EPS) {
+        printLine("a1 cannot be 0",   COL_RED); waitContinue(); return;
+    }
+
+    double r = 1.0 - a1 / Sinf;
+
+    formatFraction(nb, sizeof(nb), r);
+    snprintf(lb, sizeof(lb), "r = %s", nb); printLine(lb, COL_GREEN);
+
+    if      (fabs(r) < 1.0 - MATH_EPS)         printLine("|r|<1: converges", COL_GRAY);
+    else if (fabs(fabs(r) - 1.0) < MATH_EPS)   printLine("|r|=1: diverges",  COL_ORANGE);
+    else                                         printLine("|r|>1: diverges",  COL_RED);
+
+    /* Verification */
+    if (fabs(1.0 - r) > MATH_EPS) {
+        double chk = a1 / (1.0 - r);
+        formatFraction(nb, sizeof(nb), chk);
+        snprintf(lb, sizeof(lb), "Verify S_inf = %s", nb);
+        printLine(lb, COL_GRAY);
+    }
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   TWO-NUMBER MEANS (AM, GM, HM) WITH RATIOS
+   Displays all three means and GM/AM ratio.
+   e.g. GM(6,12) / AM(6,12)
+   ───────────────────────────────────────────── */
+static void solveTwoNumberMeans(void)
+{
+    RESET_CANCEL();
+    startScreen("TWO-NUMBER MEANS", "[CLEAR] Back");
+    printSubheader("AM, GM, HM for a and b");
+    printBlank();
+
+    double a = inputNumber("a = "); CHECK_CANCEL;
+    double b = inputNumber("b = "); CHECK_CANCEL;
+
+    printDivider();
+    char nb[24], lb[52];
+
+    double AM = (a + b) / 2.0;
+    formatFraction(nb, sizeof(nb), AM);
+    snprintf(lb, sizeof(lb), "AM = %s", nb); printLine(lb, COL_GREEN);
+
+    if (a * b >= 0.0) {
+        double GM = (a < 0.0 && b < 0.0)
+                  ? -sqrt(a * b)
+                  :  sqrt(fabs(a * b));
+
+        /* Try to display GM cleanly */
+        char gmBuf[20];
+        formatFraction(gmBuf, sizeof(gmBuf), GM);
+        char decBuf[20];
+        formatNumber(decBuf, sizeof(decBuf), GM);
+        if (strcmp(gmBuf, decBuf) == 0)
+            snprintf(lb, sizeof(lb), "GM = %s", decBuf);
+        else
+            snprintf(lb, sizeof(lb), "GM = %s = %s", gmBuf, decBuf);
+        printLine(lb, COL_GREEN);
+
+        /* GM / AM */
+        if (fabs(AM) > MATH_EPS) {
+            char rBuf[20];
+            formatFraction(rBuf, sizeof(rBuf), GM / AM);
+            char rDec[20];
+            formatNumber(rDec, sizeof(rDec), GM / AM);
+            if (strcmp(rBuf, rDec) == 0)
+                snprintf(lb, sizeof(lb), "GM/AM = %s", rDec);
+            else
+                snprintf(lb, sizeof(lb), "GM/AM = %s = %s", rBuf, rDec);
+            printLine(lb, COL_BLACK);
+        }
+    } else {
+        printLine("GM: undefined (neg. product)", COL_ORANGE);
+    }
+
+    if (fabs(a) > MATH_EPS && fabs(b) > MATH_EPS && fabs(a + b) > MATH_EPS) {
+        double HM = 2.0 * a * b / (a + b);
+        formatFraction(nb, sizeof(nb), HM);
+        snprintf(lb, sizeof(lb), "HM = %s", nb); printLine(lb, COL_GREEN);
+    } else {
+        printLine("HM: undefined (zero denom.)", COL_ORANGE);
+    }
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   TRIANGULAR SERIES EQUATION
+   Solves:  1+3+6+...+T_n  =  k*(1+2+...+n)
+   where T_i = i(i+1)/2  (ith triangular number)
+
+   LHS = Σ_{i=1}^{n} i(i+1)/2 = n(n+1)(n+2)/6
+   RHS = k * n(n+1)/2
+
+   Dividing both sides by n(n+1)/2  (n > 0):
+       (n+2)/3 = k
+   →   n = 3k - 2
+   ───────────────────────────────────────────── */
+static void solveTriangularEquation(void)
+{
+    RESET_CANCEL();
+    startScreen("TRIANGULAR SERIES EQN", "[CLEAR] Back");
+    printSubheader("1+3+6+...+T_n = k*(1+...+n)");
+    printBlank();
+
+    printLine("Formula: n = 3k - 2", COL_NAVY);
+    printBlank();
+
+    double kDbl = inputNumber("k = "); CHECK_CANCEL;
+    int k = (int)round(kDbl);
+
+    printDivider();
+    char lb[52];
+
+    if (k < 1) { printLine("k must be >= 1", COL_RED); waitContinue(); return; }
+
+    int n = 3 * k - 2;
+    snprintf(lb, sizeof(lb), "n = 3(%d) - 2 = %d", k, n);
+    printLine(lb, COL_GREEN);
+
+    /* Verify numerically */
+    double LHS = (double)n * (n + 1.0) * (n + 2.0) / 6.0;
+    double RHS = (double)k * (double)n * (n + 1.0) / 2.0;
+    snprintf(lb, sizeof(lb), "LHS=%.0f  RHS=%.0f", LHS, RHS);
+    printLine(lb, fabs(LHS - RHS) < 1.0 ? COL_GRAY : COL_RED);
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   ADVANCED SERIES SUB-MENU
+   ───────────────────────────────────────────── */
+static void menuAdvancedSeries(void)
+{
+    const char *options[] = {
+        "AP: Two Given Terms",
+        "Consecutive Odd/Even",
+        "Sum of Arith. Means",
+        "Alternating Series",
+        "Alternating Squares",
+        "Sqrt(2) Sequence",
+        "Geo: T_p + T_q",
+        "Inf. Geo: Find r",
+        "Two-Number Means (AM/GM/HM)",
+        "Triangular Eqn",
+        "Back"
+    };
+
+    /* showMenu displays up to 9 items at once (keys 1-9).
+       This menu has 11 entries so we show it in two pages. */
+    for (;;) {
+        /* Page 1: items 0-8 (keys 1-9) */
+        int sel = showMenu("ADVANCED SERIES (1/2)", options, 9);
+        if (sel < 0) return;
+        if (sel == 8) {
+            /* Key 9 on page 1 = "Two-Number Means" — intentional */
+            solveTwoNumberMeans(); continue;
+        }
+        switch (sel) {
+            case 0: solveAPTwoTerms();          break;
+            case 1: solveConsecutiveOddEven();  break;
+            case 2: solveArithMeansSum();        break;
+            case 3: solveAlternatingSeries();    break;
+            case 4: solveAlternatingSquares();   break;
+            case 5: solveSqrt2Sequence();        break;
+            case 6: solveGeoSumTwoTerms();       break;
+            case 7: solveInfiniteGeoFindR();     break;
+        }
+        /* After any solver on page 1, loop back to the top. */
+
+        /* "More..." prompt for items 9-10 */
+        startScreen("ADVANCED SERIES (2/2)", "[CLEAR] Back");
+        printLine("1: Two-Number Means (AM/GM/HM)", COL_BLACK);
+        printLine("2: Triangular Series Eqn",        COL_BLACK);
+        printLine("3: Back to Sequences menu",        COL_BLACK);
+        blit();
+
+        uint8_t key2;
+        do { key2 = waitForKey(); }
+        while (key2 != sk_1 && key2 != sk_2 && key2 != sk_3 && key2 != sk_Clear);
+        if (key2 == sk_Clear || key2 == sk_3) return;
+        if (key2 == sk_1) solveTwoNumberMeans();
+        if (key2 == sk_2) solveTriangularEquation();
+    }
+}
 /* ── Menu ── */
 static void menuSequencesAndSeries(void)
 {
@@ -4644,10 +5367,11 @@ static void menuSequencesAndSeries(void)
         "Geometric Means",
         "Harmonic Mean",
         "Special Series",
+        "Advanced Series",
         "Back"
     };
     int sel;
-    while ((sel = showMenu("SEQUENCES & SERIES", options, 7)) >= 0) {
+    while ((sel = showMenu("SEQUENCES & SERIES", options, 8)) >= 0) {
         switch (sel) {
             case 0: solveArithmeticSequence(); break;
             case 1: solveGeometricSequence();  break;
@@ -4655,7 +5379,8 @@ static void menuSequencesAndSeries(void)
             case 3: solveGeometricMeans();     break;
             case 4: solveHarmonicMean();       break;
             case 5: solveSpecialSeries();      break;
-            case 6: return;
+            case 6: menuAdvancedSeries(); break;
+            case 7: return;
         }
     }
 }
@@ -4933,7 +5658,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.57 ", COL_NAVY);
+    printLine("MathSolverCE  v2.58 ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
