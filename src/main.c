@@ -4683,7 +4683,6 @@ static void solveGeometricMeans(void)
     printSubheader("Inserts k means: a,m1..mk,b");
     printBlank();
 
-    char nb[28], lineBuf[52];
 
     formatFraction(nb, sizeof(nb), r);
     snprintf(lineBuf, sizeof(lineBuf), "r = %s", nb);
