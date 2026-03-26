@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.58
+ * MathSolverCE  v2.59
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -222,16 +222,36 @@ static bool gUserCancelled = false;
 
 #define MAX_INPUT_LEN 18
 
+/*
+ * inputNumber — enhanced for sequences & series.
+ *
+ * New keys during entry:
+ *   [÷]  fraction mode — type p, press ÷, type q, press ENTER → p/q
+ *   [^]  sqrt mode     — optionally type coefficient, press ^,
+ *                        type integer radicand, press ENTER
+ *                        e.g. "3 ^ 2 ENTER" = 3*sqrt(2) ≈ 4.2426
+ *                             "^ 2 ENTER"   = sqrt(2)   ≈ 1.4142
+ *   [DEL] in sub-mode backs out one char; if sub-buffer empty,
+ *         exits back to the main number.
+ *
+ * All other existing behaviour (digits, decimal, neg, CLEAR, ENTER)
+ * is completely unchanged.
+ */
 static double inputNumber(const char *prompt)
 {
-    char inputBuf[MAX_INPUT_LEN + 1];
-    int  inputLen  = 0;
-    bool hasDot    = false;
+    char numBuf[MAX_INPUT_LEN + 1]; /* main value / numerator / sqrt coeff */
+    char auxBuf[10 + 1];            /* denominator OR sqrt radicand        */
+    int  numLen = 0, auxLen = 0;
+    bool hasDot = false;
+    bool fracMode = false;          /* true after ÷ pressed  */
+    bool sqrtMode = false;          /* true after ^ pressed  */
     int  savedLine = gCurrentLine;
 
-    inputBuf[0] = '\0';
+    numBuf[0] = '\0';
+    auxBuf[0] = '\0';
 
     for (;;) {
+        /* ── Redraw row ── */
         int rowY = BODY_TOP + savedLine * LINE_H;
         gfx_SetColor(COL_WHITE);
         gfx_FillRectangle_NoClip(0, rowY - 1, SCR_W, LINE_H + 2);
@@ -241,55 +261,126 @@ static double inputNumber(const char *prompt)
         gfx_SetTextBGColor(COL_WHITE);
         gfx_PrintStringXY(prompt, LMARGIN, rowY);
 
-        char displayBuf[MAX_INPUT_LEN + 4];
-        snprintf(displayBuf, sizeof(displayBuf), "%s_", inputBuf);
+        /* Build display string based on current mode */
+        char displayBuf[MAX_INPUT_LEN + 18];
+        if (sqrtMode) {
+            if (numLen > 0)
+                snprintf(displayBuf, sizeof(displayBuf),
+                         "%s*sqrt(%s_)", numBuf, auxBuf);
+            else
+                snprintf(displayBuf, sizeof(displayBuf),
+                         "sqrt(%s_)", auxBuf);
+        } else if (fracMode) {
+            snprintf(displayBuf, sizeof(displayBuf),
+                     "%s/%s_", numBuf, auxBuf);
+        } else {
+            snprintf(displayBuf, sizeof(displayBuf), "%s_", numBuf);
+        }
+
+        int valueX = LMARGIN + promptW + 4;
         gfx_SetTextFGColor(COL_BLACK);
         gfx_SetTextBGColor(COL_WHITE);
-        int valueX = LMARGIN + promptW + 4;
         gfx_PrintStringXY(displayBuf, valueX, rowY);
 
         gfx_SetColor(COL_GRAY);
-        gfx_FillRectangle_NoClip(valueX, rowY + 9, SCR_W - valueX - LMARGIN, 1);
+        gfx_FillRectangle_NoClip(valueX, rowY + 9,
+                                  SCR_W - valueX - LMARGIN, 1);
         blit();
 
         uint8_t key = waitForKey();
 
+        /* ── Cancel ── */
         if (key == sk_Clear) {
             gUserCancelled = true;
             gCurrentLine   = savedLine + 1;
             return 0.0;
         }
+
+        /* ── Confirm ── */
         if (key == sk_Enter) {
             gCurrentLine = savedLine + 1;
-            return (inputLen == 0) ? 0.0 : atof(inputBuf);
-        }
-        if (key == sk_Del && inputLen > 0) {
-            if (inputBuf[inputLen - 1] == '.') hasDot = false;
-            inputBuf[--inputLen] = '\0';
-            continue;
-        }
-        if (key == sk_Chs) {
-            if (inputLen > 0 && inputBuf[0] == '-') {
-                memmove(inputBuf, inputBuf + 1, (size_t)inputLen);
-                inputLen--;
-            } else if (inputLen < MAX_INPUT_LEN - 1) {
-                memmove(inputBuf + 1, inputBuf, (size_t)(inputLen + 1));
-                inputBuf[0] = '-';
-                inputLen++;
+            if (sqrtMode) {
+                double coeff = (numLen > 0) ? atof(numBuf) : 1.0;
+                int    rad   = (auxLen > 0) ? abs((int)atof(auxBuf)) : 1;
+                return coeff * sqrt((double)rad);
             }
-            continue;
-        }
-        if (key == sk_DecPnt && !hasDot && inputLen < MAX_INPUT_LEN - 1) {
-            if (inputLen == 0 || inputBuf[inputLen - 1] == '-') {
-                inputBuf[inputLen++] = '0';
-                inputBuf[inputLen]   = '\0';
+            if (fracMode) {
+                double num = (numLen > 0) ? atof(numBuf) : 0.0;
+                double den = (auxLen > 0) ? atof(auxBuf) : 1.0;
+                if (fabs(den) < 1e-15) den = 1.0;
+                return num / den;
             }
-            inputBuf[inputLen++] = '.';
-            inputBuf[inputLen]   = '\0';
-            hasDot = true;
+            return (numLen == 0) ? 0.0 : atof(numBuf);
+        }
+
+        /* ── Backspace ── */
+        if (key == sk_Del) {
+            if (sqrtMode || fracMode) {
+                if (auxLen > 0) {
+                    auxBuf[--auxLen] = '\0';
+                } else {
+                    /* exit sub-mode, return to main number editing */
+                    fracMode = sqrtMode = false;
+                }
+            } else if (numLen > 0) {
+                if (numBuf[numLen - 1] == '.') hasDot = false;
+                numBuf[--numLen] = '\0';
+            }
             continue;
         }
 
+        /* ── Enter fraction mode: press ÷ after typing numerator ── */
+        if (key == sk_Div && !fracMode && !sqrtMode && numLen > 0) {
+            fracMode  = true;
+            auxLen    = 0;
+            auxBuf[0] = '\0';
+            continue;
+        }
+
+        /* ── Enter sqrt mode: press ^ (sk_Power) ── */
+        if (key == sk_Power && !fracMode && !sqrtMode) {
+            sqrtMode  = true;
+            auxLen    = 0;
+            auxBuf[0] = '\0';
+            continue;
+        }
+
+        /* ── Negative toggle (main buffer only) ── */
+        if (key == sk_Chs && !fracMode && !sqrtMode) {
+            if (numLen > 0 && numBuf[0] == '-') {
+                memmove(numBuf, numBuf + 1, (size_t)numLen);
+                numLen--;
+            } else if (numLen < MAX_INPUT_LEN - 1) {
+                memmove(numBuf + 1, numBuf, (size_t)(numLen + 1));
+                numBuf[0] = '-';
+                numLen++;
+            }
+            continue;
+        }
+
+        /* ── Decimal point ──
+           Allowed in main buffer and fraction denominator, not in sqrt radicand */
+        if (key == sk_DecPnt && !sqrtMode) {
+            if (!fracMode && !hasDot && numLen < MAX_INPUT_LEN - 1) {
+                if (numLen == 0 || numBuf[numLen - 1] == '-') {
+                    numBuf[numLen++] = '0'; numBuf[numLen] = '\0';
+                }
+                numBuf[numLen++] = '.'; numBuf[numLen] = '\0';
+                hasDot = true;
+            } else if (fracMode && auxLen < 9) {
+                /* only add decimal once to denominator */
+                bool auxHasDot = false;
+                for (int i = 0; i < auxLen; i++)
+                    if (auxBuf[i] == '.') { auxHasDot = true; break; }
+                if (!auxHasDot) {
+                    if (auxLen == 0) { auxBuf[auxLen++] = '0'; auxBuf[auxLen] = '\0'; }
+                    auxBuf[auxLen++] = '.'; auxBuf[auxLen] = '\0';
+                }
+            }
+            continue;
+        }
+
+        /* ── Digit keys ── */
         char digitChar = '\0';
         switch (key) {
             case sk_0: digitChar = '0'; break;
@@ -304,13 +395,17 @@ static double inputNumber(const char *prompt)
             case sk_9: digitChar = '9'; break;
             default:   break;
         }
-        if (digitChar && inputLen < MAX_INPUT_LEN - 1) {
-            inputBuf[inputLen++] = digitChar;
-            inputBuf[inputLen]   = '\0';
+        if (digitChar) {
+            if ((fracMode || sqrtMode) && auxLen < 9) {
+                auxBuf[auxLen++] = digitChar;
+                auxBuf[auxLen]   = '\0';
+            } else if (!fracMode && !sqrtMode && numLen < MAX_INPUT_LEN - 1) {
+                numBuf[numLen++] = digitChar;
+                numBuf[numLen]   = '\0';
+            }
         }
     }
 }
-
 /*
  * Integer-only input — builds a uint32_t directly from
  * digit keys with no floating-point conversion at any step.
@@ -447,16 +542,14 @@ static void formatNumber(char *outBuf, size_t bufSize, double value)
         snprintf(outBuf, bufSize, "%.5g", value);
     }
 }
-
 /* ═══════════════════════════════════════════════
-   FRACTION UTILITIES
-   toFraction  : best rational p/q (|q| ≤ maxDen)
-                 via continued fractions
-   formatFraction : formats as "p/q" or integer;
-                    falls back to formatNumber if
-                    no clean fraction is found.
+   FRACTION / SQRT DISPLAY UTILITIES
    ═══════════════════════════════════════════════ */
 
+/*
+ * Best rational p/q for val, with |q| <= maxDen,
+ * via continued fractions.
+ */
 static void toFraction(double val, long *num, long *den, long maxDen)
 {
     if (fabs(val) < MATH_EPS) { *num = 0; *den = 1; return; }
@@ -480,20 +573,69 @@ static void toFraction(double val, long *num, long *den, long maxDen)
     *den = k0;
 }
 
-/* Format val as reduced fraction if a clean one exists (|q|≤9999),
-   otherwise fall back to formatNumber decimal output. */
+/*
+ * Format as reduced fraction p/q if |error| < 1e-8,
+ * otherwise fall back to formatNumber decimal.
+ */
 static void formatFraction(char *buf, size_t sz, double val)
 {
     long n, d;
     toFraction(val, &n, &d, 9999);
-    if (d > 0 &&
-        fabs((double)n / (double)d - val) < 1e-7 * (1.0 + fabs(val))) {
+    if (d > 0 && fabs((double)n / (double)d - val) < 1e-8 * (1.0 + fabs(val))) {
         if (d == 1) snprintf(buf, sz, "%ld",       n);
         else        snprintf(buf, sz, "%ld/%ld", n, d);
     } else {
         formatNumber(buf, sz, val);
     }
 }
+
+/*
+ * Format val as  p*sqrt(k)/q  when a clean match is found
+ * (radicand in {2,3,5,6,7,10,11,13}, coefficient denom <= 99).
+ * Falls back to formatFraction, then formatNumber.
+ *
+ * Examples:
+ *   sqrt(2)/2  →  "sqrt(2)/2"
+ *   3*sqrt(5)  →  "3*sqrt(5)"
+ *   0.75       →  "3/4"
+ */
+static void formatSqrtForm(char *buf, size_t sz, double val)
+{
+    if (fabs(val) < MATH_EPS) { snprintf(buf, sz, "0"); return; }
+
+    /* Try plain fraction first */
+    long fn, fd;
+    toFraction(val, &fn, &fd, 9999);
+    if (fd > 0 && fabs((double)fn / (double)fd - val) < 1e-9 * (1.0 + fabs(val))) {
+        formatFraction(buf, sz, val); return;
+    }
+
+    /* Try  (rn/rd) * sqrt(k)  for small radicands */
+    static const int kTab[] = { 2, 3, 5, 6, 7, 10, 11, 13, 14, 15, 0 };
+    for (int i = 0; kTab[i]; i++) {
+        int    k  = kTab[i];
+        double sq = sqrt((double)k);
+        double r  = val / sq;
+        long   rn, rd;
+        toFraction(r, &rn, &rd, 99);
+        if (rd <= 0) continue;
+        if (fabs((double)rn / (double)rd * sq - val) < 1e-7 * (1.0 + fabs(val))) {
+            if (rd == 1) {
+                if      (rn ==  1) snprintf(buf, sz, "sqrt(%d)", k);
+                else if (rn == -1) snprintf(buf, sz, "-sqrt(%d)", k);
+                else               snprintf(buf, sz, "%ld*sqrt(%d)", rn, k);
+            } else {
+                if      (rn ==  1) snprintf(buf, sz, "sqrt(%d)/%ld", k, rd);
+                else if (rn == -1) snprintf(buf, sz, "-sqrt(%d)/%ld", k, rd);
+                else               snprintf(buf, sz, "%ld*sqrt(%d)/%ld", rn, k, rd);
+            }
+            return;
+        }
+    }
+
+    formatNumber(buf, sz, val); /* decimal fallback */
+}
+
 
 /* ═══════════════════════════════════════════════
    MENU ENGINE
@@ -4076,23 +4218,15 @@ static void solveRadicalSimplifier(void)
    ═══════════════════════════════════════════════ */
 
 /*
- * Arithmetic Sequence solver.
+ * Arithmetic Sequence solver — all 10 valid 3-of-5 combinations.
  *
- * Known variables (user marks which are known):
- *   a1 = first term
- *   d  = common difference
- *   n  = number of terms
- *   an = nth term
- *   Sn = sum of n terms
- *
+ * Variables:  a1  d  n  an  Sn
  * Formulas:
  *   an = a1 + (n-1)*d
- *   Sn = n/2 * (2*a1 + (n-1)*d)
- *      = n/2 * (a1 + an)
+ *   Sn = n/2 * (a1 + an)   [equivalently  n*a1 + d*n*(n-1)/2]
  *
- * Given any 3 of the 5 variables, the other 2 can be found.
- * The solver asks which are known, collects their values,
- * then computes and displays all 5.
+ * The solver iterates rules until no more progress, then handles
+ * the two quadratic-in-n cases explicitly.
  */
 static void solveArithmeticSequence(void)
 {
@@ -4101,15 +4235,14 @@ static void solveArithmeticSequence(void)
     printSubheader("an = a1 + (n-1)d");
     printBlank();
 
-    /* Which variables are known? */
-    printLine("Mark known variables:", COL_NAVY);
+    printLine("Mark 3 known variables:", COL_NAVY);
     printLine("1:a1  2:d  3:n  4:an  5:Sn", COL_ORANGE);
-    printLine("Enter 3 digits e.g. 124", COL_GRAY);
+    printLine("Type 3 digits then ENTER", COL_GRAY);
     blit();
 
-    /* Collect the 3-digit selection string */
+    /* ── 3-digit variable selection ── */
     char sel[4] = "";
-    int  selLen = 0;
+    int  selLen  = 0;
     int  savedLine = gCurrentLine;
 
     for (;;) {
@@ -4129,14 +4262,11 @@ static void solveArithmeticSequence(void)
         if (key == sk_Del && selLen > 0) { sel[--selLen] = '\0'; continue; }
 
         char digit = '\0';
-        if      (key == sk_1) digit = '1';
-        else if (key == sk_2) digit = '2';
-        else if (key == sk_3) digit = '3';
-        else if (key == sk_4) digit = '4';
+        if      (key == sk_1) digit = '1'; else if (key == sk_2) digit = '2';
+        else if (key == sk_3) digit = '3'; else if (key == sk_4) digit = '4';
         else if (key == sk_5) digit = '5';
 
         if (digit && selLen < 3) {
-            /* Avoid duplicates */
             bool dup = false;
             for (int i = 0; i < selLen; i++)
                 if (sel[i] == digit) { dup = true; break; }
@@ -4145,20 +4275,17 @@ static void solveArithmeticSequence(void)
     }
     gCurrentLine = savedLine + 1;
 
-    /* Parse which variables are known */
     bool knowA1 = false, knowD  = false, knowN  = false,
          knowAN = false, knowSN = false;
     for (int i = 0; i < 3; i++) {
         switch (sel[i]) {
-            case '1': knowA1 = true; break;
-            case '2': knowD  = true; break;
-            case '3': knowN  = true; break;
-            case '4': knowAN = true; break;
-            case '5': knowSN = true; break;
+            case '1': knowA1=true; break; case '2': knowD=true;  break;
+            case '3': knowN=true;  break; case '4': knowAN=true; break;
+            case '5': knowSN=true; break;
         }
     }
 
-    /* Collect values for known variables */
+    /* ── Collect values ── */
     double a1=0, d=0, n=0, an=0, Sn=0;
 
     startScreen("ARITHMETIC SEQUENCE", "[CLEAR] Back");
@@ -4171,54 +4298,83 @@ static void solveArithmeticSequence(void)
     if (knowAN) { an = inputNumber("an = "); CHECK_CANCEL; }
     if (knowSN) { Sn = inputNumber("Sn = "); CHECK_CANCEL; }
 
-    /* ── Solve for unknowns ── */
+    /* ── Solve: iterate until no more progress ── */
+    bool progress = true;
+    for (int pass = 0; pass < 20 && progress; pass++) {
+        progress = false;
 
-    /* Derive all 5 from the 3 known ones */
-    bool solved = false;
-    int  maxIter = 10;
-
-    for (int iter = 0; iter < maxIter && !solved; iter++) {
-        solved = true;   /* assume done; set false if anything changes */
-
-        /* an = a1 + (n-1)*d */
-        if (!knowAN && knowA1 && knowN && knowD) {
-            an = a1 + (n - 1.0) * d; knowAN = true; continue;
+        /* From  an = a1 + (n-1)*d */
+        if (!knowAN && knowA1 && knowD && knowN) {
+            an = a1 + (n-1.0)*d; knowAN=true; progress=true;
         }
-        if (!knowA1 && knowAN && knowN && knowD) {
-            a1 = an - (n - 1.0) * d; knowA1 = true; continue;
+        if (!knowA1 && knowAN && knowD && knowN) {
+            a1 = an - (n-1.0)*d; knowA1=true; progress=true;
         }
-        if (!knowD && knowAN && knowA1 && knowN) {
-            if (fabs(n - 1.0) < MATH_EPS) { /* d undefined */ }
-            else { d = (an - a1) / (n - 1.0); knowD = true; continue; }
+        if (!knowD && knowA1 && knowAN && knowN && fabs(n-1.0) > MATH_EPS) {
+            d = (an-a1)/(n-1.0); knowD=true; progress=true;
         }
-        if (!knowN && knowAN && knowA1 && knowD) {
-            if (fabs(d) < MATH_EPS) { /* n undefined */ }
-            else { n = (an - a1) / d + 1.0; knowN = true; continue; }
+        if (!knowN && knowA1 && knowAN && knowD && fabs(d) > MATH_EPS) {
+            n = (an-a1)/d + 1.0; knowN=true; progress=true;
         }
 
-        /* Sn = n/2 * (2*a1 + (n-1)*d) */
-        if (!knowSN && knowA1 && knowN && knowD) {
-            Sn = (n / 2.0) * (2.0 * a1 + (n - 1.0) * d);
-            knowSN = true; continue;
+        /* From  Sn = n/2*(a1+an)  */
+        if (!knowSN && knowN && knowA1 && knowAN) {
+            Sn = n/2.0*(a1+an); knowSN=true; progress=true;
         }
-        if (!knowSN && knowA1 && knowAN && knowN) {
-            Sn = (n / 2.0) * (a1 + an); knowSN = true; continue;
+        if (!knowN && knowSN && knowA1 && knowAN && fabs(a1+an) > MATH_EPS) {
+            n = 2.0*Sn/(a1+an); knowN=true; progress=true;
         }
-        if (!knowA1 && knowSN && knowN && knowD) {
-            a1 = (Sn / (n / 2.0) - (n - 1.0) * d) / 2.0;
-            knowA1 = true; continue;
+        if (!knowA1 && knowSN && knowN && knowAN && fabs(n) > MATH_EPS) {
+            a1 = 2.0*Sn/n - an; knowA1=true; progress=true;
         }
-        if (!knowD && knowSN && knowN && knowA1) {
-            /* Sn = n*a1 + d*n*(n-1)/2 => d = (Sn - n*a1)*2/(n*(n-1)) */
-            double denom = n * (n - 1.0);
-            if (fabs(denom) > MATH_EPS) {
-                d = (Sn - n * a1) * 2.0 / denom;
-                knowD = true; continue;
+        if (!knowAN && knowSN && knowN && knowA1 && fabs(n) > MATH_EPS) {
+            an = 2.0*Sn/n - a1; knowAN=true; progress=true;
+        }
+
+        /* From  Sn = n*a1 + d*n*(n-1)/2  */
+        if (!knowSN && knowA1 && knowD && knowN) {
+            Sn = n*a1 + d*n*(n-1.0)/2.0; knowSN=true; progress=true;
+        }
+        if (!knowA1 && knowSN && knowD && knowN && fabs(n) > MATH_EPS) {
+            a1 = (2.0*Sn - d*n*(n-1.0)) / (2.0*n);
+            knowA1=true; progress=true;
+        }
+        if (!knowD && knowSN && knowA1 && knowN && fabs(n*(n-1.0)) > MATH_EPS) {
+            d = 2.0*(Sn - n*a1) / (n*(n-1.0));
+            knowD=true; progress=true;
+        }
+
+        /* Quadratic: find n from {a1, d, Sn}
+         *   d*n^2 + (2*a1 - d)*n - 2*Sn = 0                */
+        if (!knowN && knowA1 && knowD && knowSN && fabs(d) > MATH_EPS) {
+            double A = d, B = 2.0*a1 - d, C = -2.0*Sn;
+            double disc = B*B - 4.0*A*C;
+            if (disc >= -MATH_EPS) {
+                double sq = sqrt(fabs(disc));
+                double n1 = (-B + sq) / (2.0*A);
+                double n2 = (-B - sq) / (2.0*A);
+                double nSel = 0.0; bool found = false;
+                if (n1 > 0.5 && fabs(n1-round(n1)) < 0.01) { nSel=round(n1); found=true; }
+                else if (n2 > 0.5 && fabs(n2-round(n2)) < 0.01) { nSel=round(n2); found=true; }
+                if (found) { n=nSel; knowN=true; progress=true; }
             }
         }
 
-        solved = false;
-        break;
+        /* Quadratic: find n from {d, an, Sn}
+         *   d*n^2 - (2*an + d)*n + 2*Sn = 0                */
+        if (!knowN && knowD && knowAN && knowSN && fabs(d) > MATH_EPS) {
+            double A = d, B = -(2.0*an + d), C = 2.0*Sn;
+            double disc = B*B - 4.0*A*C;
+            if (disc >= -MATH_EPS) {
+                double sq = sqrt(fabs(disc));
+                double n1 = (-B + sq) / (2.0*A);
+                double n2 = (-B - sq) / (2.0*A);
+                double nSel = 0.0; bool found = false;
+                if (n1 > 0.5 && fabs(n1-round(n1)) < 0.01) { nSel=round(n1); found=true; }
+                else if (n2 > 0.5 && fabs(n2-round(n2)) < 0.01) { nSel=round(n2); found=true; }
+                if (found) { n=nSel; knowN=true; progress=true; }
+            }
+        }
     }
 
     /* ── Display ── */
@@ -4226,53 +4382,45 @@ static void solveArithmeticSequence(void)
     printSubheader("Results");
     printBlank();
 
-    char nb[20], lineBuf[52];
+    char nb[28], lineBuf[52];
 
     if (!knowA1 || !knowD || !knowN || !knowAN || !knowSN) {
         printLine("Could not solve fully.", COL_RED);
-        printLine("Check inputs (need 3).", COL_BLACK);
+        printLine("Try a different 3 vars.", COL_BLACK);
         waitContinue();
         return;
     }
 
-    formatNumber(nb, sizeof(nb), a1);
-    snprintf(lineBuf, sizeof(lineBuf), "a1 = %s", nb);
-    printLine(lineBuf, COL_GREEN);
+    formatFraction(nb, sizeof(nb), a1);
+    snprintf(lineBuf, sizeof(lineBuf), "a1 = %s", nb); printLine(lineBuf, COL_GREEN);
 
-    formatNumber(nb, sizeof(nb), d);
-    snprintf(lineBuf, sizeof(lineBuf), "d  = %s", nb);
-    printLine(lineBuf, COL_GREEN);
+    formatFraction(nb, sizeof(nb), d);
+    snprintf(lineBuf, sizeof(lineBuf), "d  = %s", nb); printLine(lineBuf, COL_GREEN);
 
-    formatNumber(nb, sizeof(nb), n);
-    snprintf(lineBuf, sizeof(lineBuf), "n  = %s", nb);
-    printLine(lineBuf, COL_GREEN);
+    formatNumber(nb, sizeof(nb), round(n));
+    snprintf(lineBuf, sizeof(lineBuf), "n  = %s", nb); printLine(lineBuf, COL_GREEN);
 
-    formatNumber(nb, sizeof(nb), an);
-    snprintf(lineBuf, sizeof(lineBuf), "an = %s", nb);
-    printLine(lineBuf, COL_GREEN);
+    formatFraction(nb, sizeof(nb), an);
+    snprintf(lineBuf, sizeof(lineBuf), "an = %s", nb); printLine(lineBuf, COL_GREEN);
 
-    formatNumber(nb, sizeof(nb), Sn);
-    snprintf(lineBuf, sizeof(lineBuf), "Sn = %s", nb);
-    printLine(lineBuf, COL_GREEN);
+    formatFraction(nb, sizeof(nb), Sn);
+    snprintf(lineBuf, sizeof(lineBuf), "Sn = %s", nb); printLine(lineBuf, COL_GREEN);
 
     waitContinue();
 }
-
 /*
  * Geometric Sequence solver.
  *
- * Variables:
- *   a1 = first term
- *   r  = common ratio
- *   n  = number of terms
- *   an = nth term
- *   Sn = sum of n terms  (finite)
- *   Si = sum to infinity (only when |r|<1)
- *
+ * Variables:  a1  r  n  an  Sn
  * Formulas:
  *   an = a1 * r^(n-1)
- *   Sn = a1 * (1 - r^n) / (1 - r)   r != 1
- *   Si = a1 / (1 - r)               |r| < 1
+ *   Sn = a1*(1-r^n)/(1-r)   r != 1
+ *   Sn = a1*n                r == 1
+ *   S∞ = a1/(1-r)            |r| < 1
+ *
+ * New rules added vs original:
+ *   n from {a1,r,an}  → n = log(an/a1)/log(r) + 1
+ *   n from {a1,r,Sn}  → n = log(1-Sn(1-r)/a1)/log(r)
  */
 static void solveGeometricSequence(void)
 {
@@ -4283,11 +4431,11 @@ static void solveGeometricSequence(void)
 
     printLine("Mark known variables:", COL_NAVY);
     printLine("1:a1  2:r  3:n  4:an  5:Sn", COL_ORANGE);
-    printLine("Enter 3 digits e.g. 124", COL_GRAY);
+    printLine("Type 2-3 digits then ENTER", COL_GRAY);
     blit();
 
     char sel[4] = "";
-    int  selLen = 0;
+    int  selLen  = 0;
     int  savedLine = gCurrentLine;
 
     for (;;) {
@@ -4307,10 +4455,8 @@ static void solveGeometricSequence(void)
         if (key == sk_Del && selLen > 0) { sel[--selLen] = '\0'; continue; }
 
         char digit = '\0';
-        if      (key == sk_1) digit = '1';
-        else if (key == sk_2) digit = '2';
-        else if (key == sk_3) digit = '3';
-        else if (key == sk_4) digit = '4';
+        if      (key == sk_1) digit = '1'; else if (key == sk_2) digit = '2';
+        else if (key == sk_3) digit = '3'; else if (key == sk_4) digit = '4';
         else if (key == sk_5) digit = '5';
 
         if (digit && selLen < 3) {
@@ -4322,15 +4468,12 @@ static void solveGeometricSequence(void)
     }
     gCurrentLine = savedLine + 1;
 
-    bool knowA1 = false, knowR  = false, knowN  = false,
-         knowAN = false, knowSN = false;
+    bool knowA1=false, knowR=false, knowN=false, knowAN=false, knowSN=false;
     for (int i = 0; sel[i]; i++) {
         switch (sel[i]) {
-            case '1': knowA1 = true; break;
-            case '2': knowR  = true; break;
-            case '3': knowN  = true; break;
-            case '4': knowAN = true; break;
-            case '5': knowSN = true; break;
+            case '1': knowA1=true; break; case '2': knowR=true;  break;
+            case '3': knowN=true;  break; case '4': knowAN=true; break;
+            case '5': knowSN=true; break;
         }
     }
 
@@ -4347,40 +4490,55 @@ static void solveGeometricSequence(void)
     if (knowSN) { Sn = inputNumber("Sn = "); CHECK_CANCEL; }
 
     /* ── Solve ── */
-    for (int iter = 0; iter < 10; iter++) {
+    bool progress = true;
+    for (int pass = 0; pass < 20 && progress; pass++) {
+        progress = false;
 
         /* an = a1 * r^(n-1) */
         if (!knowAN && knowA1 && knowR && knowN) {
-            an = a1 * pow(r, n - 1.0); knowAN = true; continue;
+            an = a1 * pow(r, n-1.0); knowAN=true; progress=true;
         }
         if (!knowA1 && knowAN && knowR && knowN) {
-            double rPow = pow(r, n - 1.0);
-            if (fabs(rPow) > MATH_EPS) { a1 = an / rPow; knowA1 = true; continue; }
+            double rp = pow(r, n-1.0);
+            if (fabs(rp) > MATH_EPS) { a1 = an/rp; knowA1=true; progress=true; }
         }
-        if (!knowR && knowAN && knowA1 && knowN && fabs(a1) > MATH_EPS) {
-            double exp = 1.0 / (n - 1.0);
-            r = pow(an / a1, exp);
-            knowR = true; continue;
+        if (!knowR && knowAN && knowA1 && knowN
+                && fabs(a1) > MATH_EPS && fabs(n-1.0) > MATH_EPS) {
+            r = pow(an/a1, 1.0/(n-1.0)); knowR=true; progress=true;
+        }
+        /* n from {a1, r, an} via log */
+        if (!knowN && knowA1 && knowR && knowAN
+                && fabs(a1) > MATH_EPS && r > 0.0 && fabs(r-1.0) > MATH_EPS) {
+            double ratio = an / a1;
+            if (ratio > 0.0) {
+                double nCalc = log(ratio) / log(r) + 1.0;
+                if (nCalc > 0.5) { n = round(nCalc); knowN=true; progress=true; }
+            }
         }
 
         /* Sn = a1*(1-r^n)/(1-r) */
         if (!knowSN && knowA1 && knowR && knowN) {
-            if (fabs(r - 1.0) < MATH_EPS)
-                Sn = a1 * n;
-            else
-                Sn = a1 * (1.0 - pow(r, n)) / (1.0 - r);
-            knowSN = true; continue;
+            if (fabs(r-1.0) < MATH_EPS) Sn = a1*n;
+            else Sn = a1*(1.0-pow(r,n))/(1.0-r);
+            knowSN=true; progress=true;
         }
         if (!knowA1 && knowSN && knowR && knowN) {
-            if (fabs(r - 1.0) < MATH_EPS) { a1 = Sn / n; }
-            else {
-                double denom = (1.0 - pow(r, n)) / (1.0 - r);
-                if (fabs(denom) > MATH_EPS) { a1 = Sn / denom; }
+            if (fabs(r-1.0) < MATH_EPS) {
+                if (fabs(n) > MATH_EPS) { a1 = Sn/n; knowA1=true; progress=true; }
+            } else {
+                double denom = (1.0-pow(r,n))/(1.0-r);
+                if (fabs(denom) > MATH_EPS) { a1 = Sn/denom; knowA1=true; progress=true; }
             }
-            knowA1 = true; continue;
         }
-
-        break;
+        /* n from {a1, r, Sn} via log */
+        if (!knowN && knowA1 && knowR && knowSN
+                && fabs(a1) > MATH_EPS && r > 0.0 && fabs(r-1.0) > MATH_EPS) {
+            double x = 1.0 - Sn*(1.0-r)/a1;
+            if (x > 0.0) {
+                double nCalc = log(x) / log(r);
+                if (nCalc > 0.5) { n = round(nCalc); knowN=true; progress=true; }
+            }
+        }
     }
 
     /* ── Display ── */
@@ -4388,45 +4546,43 @@ static void solveGeometricSequence(void)
     printSubheader("Results");
     printBlank();
 
-    char nb[20], lineBuf[52];
+    char nb[28], lineBuf[52];
+    bool anyKnown = knowA1 || knowR || knowN || knowAN || knowSN;
+
+    if (!anyKnown) {
+        printLine("Could not solve.", COL_RED);
+        waitContinue(); return;
+    }
 
     if (knowA1) {
-        formatNumber(nb, sizeof(nb), a1);
-        snprintf(lineBuf, sizeof(lineBuf), "a1 = %s", nb);
-        printLine(lineBuf, COL_GREEN);
+        formatFraction(nb, sizeof(nb), a1);
+        snprintf(lineBuf, sizeof(lineBuf), "a1 = %s", nb); printLine(lineBuf, COL_GREEN);
     }
     if (knowR) {
-        formatNumber(nb, sizeof(nb), r);
-        snprintf(lineBuf, sizeof(lineBuf), "r  = %s", nb);
-        printLine(lineBuf, COL_GREEN);
+        formatFraction(nb, sizeof(nb), r);
+        snprintf(lineBuf, sizeof(lineBuf), "r  = %s", nb); printLine(lineBuf, COL_GREEN);
     }
     if (knowN) {
-        formatNumber(nb, sizeof(nb), n);
-        snprintf(lineBuf, sizeof(lineBuf), "n  = %s", nb);
-        printLine(lineBuf, COL_GREEN);
+        formatNumber(nb, sizeof(nb), round(n));
+        snprintf(lineBuf, sizeof(lineBuf), "n  = %s", nb); printLine(lineBuf, COL_GREEN);
     }
     if (knowAN) {
-        formatNumber(nb, sizeof(nb), an);
-        snprintf(lineBuf, sizeof(lineBuf), "an = %s", nb);
-        printLine(lineBuf, COL_GREEN);
+        formatFraction(nb, sizeof(nb), an);
+        snprintf(lineBuf, sizeof(lineBuf), "an = %s", nb); printLine(lineBuf, COL_GREEN);
     }
     if (knowSN) {
-        formatNumber(nb, sizeof(nb), Sn);
-        snprintf(lineBuf, sizeof(lineBuf), "Sn = %s", nb);
-        printLine(lineBuf, COL_GREEN);
+        formatFraction(nb, sizeof(nb), Sn);
+        snprintf(lineBuf, sizeof(lineBuf), "Sn = %s", nb); printLine(lineBuf, COL_GREEN);
     }
-
-    /* Infinite sum if |r| < 1 and a1 known */
     if (knowA1 && knowR && fabs(r) < 1.0 - MATH_EPS) {
-        double Si = a1 / (1.0 - r);
-        formatNumber(nb, sizeof(nb), Si);
+        double Si = a1 / (1.0-r);
+        formatFraction(nb, sizeof(nb), Si);
         snprintf(lineBuf, sizeof(lineBuf), "S-inf = %s", nb);
         printLine(lineBuf, COL_BLACK);
     }
 
     waitContinue();
 }
-
 /*
  * Arithmetic Means solver.
  * Insert k arithmetic means between two values a and b.
@@ -4454,32 +4610,30 @@ static void solveArithmeticMeans(void)
 
     double d = (b - a) / (double)(numMeans + 1);
 
-    startScreen("ARITHMETIC MEANS", "[ENTER] Done");
-    printSubheader("Results");
+   startScreen("ARITHMETIC MEANS", "[ENTER] Done");
+    printSubheader("Inserts k means: a,m1..mk,b");
     printBlank();
 
-    char nb[20], lineBuf[52];
+    char nb[28], lineBuf[52];
 
-    formatNumber(nb, sizeof(nb), d);
+    formatFraction(nb, sizeof(nb), d);
     snprintf(lineBuf, sizeof(lineBuf), "d = %s", nb);
     printLine(lineBuf, COL_BLACK);
     printBlank();
 
-    /* Print full sequence (cap display at screen) */
-    printLine("Sequence:", COL_ORANGE);
+    printLine("Full sequence:", COL_ORANGE);
     for (int i = 0; i <= numMeans + 1 && gCurrentLine < MAX_LINES - 1; i++) {
-        double val = a + i * d;
-        formatNumber(nb, sizeof(nb), val);
+        double val = a + (double)i * d;
+        formatFraction(nb, sizeof(nb), val);
         snprintf(lineBuf, sizeof(lineBuf), "  term %d = %s", i + 1, nb);
         printLine(lineBuf, COL_GREEN);
     }
     if (numMeans + 2 > MAX_LINES - 3)
-        printLine("  (truncated — too many)", COL_GRAY);
+        printLine("  (truncated)", COL_GRAY);
 
-    /* Sum of the means only */
     double sumMeans = 0.0;
-    for (int i = 1; i <= numMeans; i++) sumMeans += a + i * d;
-    formatNumber(nb, sizeof(nb), sumMeans);
+    for (int i = 1; i <= numMeans; i++) sumMeans += a + (double)i * d;
+    formatFraction(nb, sizeof(nb), sumMeans);
     snprintf(lineBuf, sizeof(lineBuf), "Sum of means = %s", nb);
     printLine(lineBuf, COL_BLACK);
 
@@ -4526,27 +4680,28 @@ static void solveGeometricMeans(void)
     double r = pow(b / a, 1.0 / (double)(numMeans + 1));
 
     startScreen("GEOMETRIC MEANS", "[ENTER] Done");
-    printSubheader("Results");
+    printSubheader("Inserts k means: a,m1..mk,b");
     printBlank();
 
-    formatNumber(nb, sizeof(nb), r);
+    char nb[28], lineBuf[52];
+
+    formatFraction(nb, sizeof(nb), r);
     snprintf(lineBuf, sizeof(lineBuf), "r = %s", nb);
     printLine(lineBuf, COL_BLACK);
     printBlank();
 
-    printLine("Sequence:", COL_ORANGE);
+    printLine("Full sequence:", COL_ORANGE);
     for (int i = 0; i <= numMeans + 1 && gCurrentLine < MAX_LINES - 1; i++) {
         double val = a * pow(r, (double)i);
-        formatNumber(nb, sizeof(nb), val);
+        formatFraction(nb, sizeof(nb), val);
         snprintf(lineBuf, sizeof(lineBuf), "  term %d = %s", i + 1, nb);
         printLine(lineBuf, COL_GREEN);
     }
 
-    /* Single geometric mean between two numbers */
     if (numMeans == 1) {
         double gm = sqrt(fabs(a * b));
         if (a < 0) gm = -gm;
-        formatNumber(nb, sizeof(nb), gm);
+        formatSqrtForm(nb, sizeof(nb), gm);
         snprintf(lineBuf, sizeof(lineBuf), "Geo mean = %s", nb);
         printLine(lineBuf, COL_BLACK);
     }
@@ -5658,7 +5813,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.58 ", COL_NAVY);
+    printLine("MathSolverCE  v2.59 ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
