@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.59
+ * MathSolverCE  v2.6
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -41,6 +41,7 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <ti/real.h>
 
 /* ═══════════════════════════════════════════════
    PALETTE INDICES
@@ -5455,6 +5456,504 @@ static void solveTriangularEquation(void)
     waitContinue();
 }
 
+/* ═══════════════════════════════════════════════
+   LOGARITHMS & EXPONENTIALS
+   Covers all log/expo question types from the PDF:
+     • Evaluate log_b(x)             log20(23), log(5)
+     • Solve log_b(x)=c              log2(k)=9 → k=512
+     • Exponential equation          2^(7k+3)=8^(2k)
+     • Log equation                  3+log3(3k+2)=5+2log3(k)
+     • Nested log = 0                log2(log3(log5(x)))=0
+     • Expo-Log combo (u-sub)        100^x−12·100^(−x)=4
+   ═══════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────
+   1. EVALUATE log_b(x)
+   b=0 → natural log (ln).  Full 14-digit output.
+   ───────────────────────────────────────────── */
+static void solveEvalLog(void)
+{
+    RESET_CANCEL();
+    startScreen("EVALUATE LOG", "[CLEAR] Back");
+    printSubheader("Compute log_b(x) precisely");
+    printBlank();
+
+    printLine("(Enter b=0 for ln / base e)", COL_GRAY);
+    double b = inputNumber("Base b = "); CHECK_CANCEL;
+    double x = inputNumber("x      = "); CHECK_CANCEL;
+    printDivider();
+
+    char lb[52], nb[28], bl[12];
+    baseLabel(bl, sizeof(bl), b);
+
+    if ((fabs(b) > MATH_EPS && (b <= 0 || fabs(b-1.0) < 0.001)) || x <= 0) {
+        printLine("Need: b>0, b!=1, x>0", COL_RED);
+        waitContinue(); return;
+    }
+
+    snprintf(lb, sizeof(lb), "%s(%g) =", bl, x);
+    printLine(lb, COL_BLACK);
+
+    /* High-precision string */
+    char rStr[20];
+    fmtLog(rStr, sizeof(rStr), b, x);
+    printLine(rStr, COL_GREEN);
+
+    /* Also try fraction form */
+    float fv = rLogBase(b, x);
+    formatFraction(nb, sizeof(nb), (double)fv);
+    if (strcmp(nb, rStr) != 0) {
+        snprintf(lb, sizeof(lb), "= %s (frac)", nb);
+        printLine(lb, COL_GREEN);
+    }
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   2. SOLVE  log_b(x) = c   →   x = b^c
+   Displays decimal + fraction + sqrt form.
+   ───────────────────────────────────────────── */
+static void solveFindXLog(void)
+{
+    RESET_CANCEL();
+    startScreen("SOLVE log_b(x) = c", "[CLEAR] Back");
+    printSubheader("Find x = b^c");
+    printBlank();
+
+    printLine("(b=0 → solve ln(x)=c)", COL_GRAY);
+    double b = inputNumber("Base b = "); CHECK_CANCEL;
+    double c = inputNumber("RHS c  = "); CHECK_CANCEL;
+    printDivider();
+
+    char lb[52], nb[28], bl[12];
+    baseLabel(bl, sizeof(bl), b);
+
+    snprintf(lb, sizeof(lb), "%s(x)=%g  =>  x =", bl, c);
+    printLine(lb, COL_BLACK);
+
+    /* High-precision result */
+    char rStr[20];
+    fmtPow(rStr, sizeof(rStr), b, c);
+    printLine(rStr, COL_GREEN);
+
+    float fv = rPowBase(b, c);
+    /* Fraction form */
+    formatFraction(nb, sizeof(nb), (double)fv);
+    if (strcmp(nb, rStr) != 0) {
+        snprintf(lb, sizeof(lb), "= %s (frac)", nb); printLine(lb, COL_GREEN);
+    }
+    /* Sqrt form */
+    formatSqrtForm(nb, sizeof(nb), (double)fv);
+    char dec[20]; formatNumber(dec, sizeof(dec), (double)fv);
+    if (strcmp(nb, dec) != 0 && strcmp(nb, rStr) != 0) {
+        snprintf(lb, sizeof(lb), "= %s (exact)", nb); printLine(lb, COL_GREEN);
+    }
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   3. EXPONENTIAL EQUATION
+   a^(m1*x+c1) = b^(m2*x+c2)
+   Take ln both sides → linear in x:
+     x*(m1*lnA − m2*lnB) = c2*lnB − c1*lnA
+
+   Works for same or related bases, e.g.:
+     2^(7k+3) = 8^(2k)   [8=2^3, both reduce to ln2]
+     4^(6k+2) = 16^k
+   ───────────────────────────────────────────── */
+static void solveExpEquation(void)
+{
+    RESET_CANCEL();
+    startScreen("EXPONENTIAL EQ.", "[CLEAR] Back");
+    printSubheader("a^(m1x+c1) = b^(m2x+c2)");
+    printBlank();
+
+    printLine("LHS: a^(m1*x + c1)", COL_NAVY);
+    double a  = inputNumber("a  = "); CHECK_CANCEL;
+    double m1 = inputNumber("m1 = "); CHECK_CANCEL;
+    double c1 = inputNumber("c1 = "); CHECK_CANCEL;
+
+    printLine("RHS: b^(m2*x + c2)", COL_NAVY);
+    double b  = inputNumber("b  = "); CHECK_CANCEL;
+    double m2 = inputNumber("m2 = "); CHECK_CANCEL;
+    double c2 = inputNumber("c2 = "); CHECK_CANCEL;
+
+    printDivider();
+    char lb[52], nb[28];
+
+    if (a<=0||b<=0||fabs(a-1.0)<0.001||fabs(b-1.0)<0.001) {
+        printLine("Bases must be >0, !=1", COL_RED);
+        waitContinue(); return;
+    }
+
+    real_t rA  = os_FloatToReal((float)a);
+    real_t rB  = os_FloatToReal((float)b);
+    real_t lnA = os_RealLog(&rA);
+    real_t lnB = os_RealLog(&rB);
+    float flnA = os_RealToFloat(&lnA);
+    float flnB = os_RealToFloat(&lnB);
+
+    double coeffX = m1*(double)flnA - m2*(double)flnB;
+    double rhsV   = c2*(double)flnB - c1*(double)flnA;
+
+    if (fabs(coeffX) < 1e-9) {
+        printLine(fabs(rhsV)<1e-9 ? "Identity: all x" : "No solution",
+                  fabs(rhsV)<1e-9 ? COL_GREEN : COL_RED);
+        waitContinue(); return;
+    }
+
+    double x = rhsV / coeffX;
+    formatFraction(nb, sizeof(nb), x);
+    snprintf(lb, sizeof(lb), "x = %s", nb); printLine(lb, COL_GREEN);
+
+    char dec[20]; formatNumber(dec, sizeof(dec), x);
+    if (strcmp(nb, dec) != 0) {
+        snprintf(lb, sizeof(lb), "  = %s", dec); printLine(lb, COL_BLACK);
+    }
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   4. LOG EQUATION (general)
+   A + cL*log_b(mL*x+dL) = B + cR*log_b(mR*x+dR)
+
+   Rearranges to:
+     (mLx+dL)^cL = base^(B−A) * (mRx+dR)^cR
+
+   Handles cL,cR ∈ {1,2}:
+     cL=1,cR=1 → linear
+     cL=1,cR=2 → quadratic  (e.g. 2018 Q5)
+     cL=2,cR=1 → quadratic
+
+   Domain check enforces all log arguments > 0.
+   Reports sum of valid solutions for quadratic cases.
+   ───────────────────────────────────────────── */
+static void solveLogEquation(void)
+{
+    RESET_CANCEL();
+    startScreen("LOG EQUATION", "[CLEAR] Back");
+    printSubheader("A+cL*log_b(mLx+dL)=B+cR*...");
+    printBlank();
+
+    double base = inputNumber("Base b   = "); CHECK_CANCEL;
+
+    printLine("LHS: A + cL * log(mL*x+dL)", COL_NAVY);
+    double A  = inputNumber("  A   = "); CHECK_CANCEL;
+    double cL = inputNumber("  cL  = "); CHECK_CANCEL;
+    double mL = inputNumber("  mL  = "); CHECK_CANCEL;
+    double dL = inputNumber("  dL  = "); CHECK_CANCEL;
+
+    printLine("RHS: B + cR * log(mR*x+dR)", COL_NAVY);
+    double B  = inputNumber("  B   = "); CHECK_CANCEL;
+    double cR = inputNumber("  cR  = "); CHECK_CANCEL;
+    double mR = inputNumber("  mR  = "); CHECK_CANCEL;
+    double dR = inputNumber("  dR  = "); CHECK_CANCEL;
+
+    printDivider();
+    char lb[52], nb[28];
+
+    if (base<=0||fabs(base-1.0)<0.001) {
+        printLine("Invalid base", COL_RED); waitContinue(); return;
+    }
+
+    /* bK = base^(B-A) */
+    float bK = rPowBase(base, B - A);
+
+    bool found = false;
+
+    /* ── cL=1, cR=1: mLx+dL = bK*(mRx+dR) → linear ── */
+    if (fabs(cL-1.0)<0.1 && fabs(cR-1.0)<0.1) {
+        double coeff = mL - (double)bK*mR;
+        double rhsv  = (double)bK*dR - dL;
+        if (fabs(coeff)<MATH_EPS) {
+            printLine(fabs(rhsv)<MATH_EPS?"All x valid":"No solution",
+                      fabs(rhsv)<MATH_EPS?COL_GREEN:COL_RED);
+            waitContinue(); return;
+        }
+        double x = rhsv / coeff;
+        if (mL*x+dL<=0||mR*x+dR<=0) {
+            printLine("Solution rejected", COL_RED);
+            printLine("(log arg <= 0)", COL_ORANGE);
+        } else {
+            formatFraction(nb,sizeof(nb),x);
+            snprintf(lb,sizeof(lb),"x = %s",nb); printLine(lb,COL_GREEN);
+            found=true;
+        }
+
+    /* ── cL=1, cR=2: mLx+dL = bK*(mRx+dR)^2 → quadratic ── */
+    } else if (fabs(cL-1.0)<0.1 && fabs(cR-2.0)<0.1) {
+        double qa = (double)bK*mR*mR;
+        double qb = 2.0*(double)bK*mR*dR - mL;
+        double qc = (double)bK*dR*dR - dL;
+        if (fabs(qa)<MATH_EPS) {
+            double x = (fabs(qb)>MATH_EPS)?-qc/qb:0.0;
+            formatFraction(nb,sizeof(nb),x);
+            snprintf(lb,sizeof(lb),"x = %s",nb); printLine(lb,COL_GREEN);
+            found=true; goto logEqDone;
+        }
+        double disc = qb*qb - 4.0*qa*qc;
+        if (disc<-MATH_EPS){printLine("No real solution",COL_RED);waitContinue();return;}
+        double sq=sqrt(fabs(disc));
+        double roots[2]={(-qb+sq)/(2.0*qa),(-qb-sq)/(2.0*qa)};
+        double sumV=0.0; int cnt=0;
+        for (int i=0;i<2;i++) {
+            double x=roots[i];
+            if (mL*x+dL>MATH_EPS && mR*x+dR>MATH_EPS) {
+                formatFraction(nb,sizeof(nb),x);
+                snprintf(lb,sizeof(lb),"x = %s",nb); printLine(lb,COL_GREEN);
+                sumV+=x; cnt++; found=true;
+            }
+        }
+        if (cnt==2) {
+            formatFraction(nb,sizeof(nb),sumV);
+            snprintf(lb,sizeof(lb),"Sum of sols = %s",nb); printLine(lb,COL_BLACK);
+        }
+
+    /* ── cL=2, cR=1: (mLx+dL)^2 = bK*(mRx+dR) → quadratic ── */
+    } else if (fabs(cL-2.0)<0.1 && fabs(cR-1.0)<0.1) {
+        double qa = mL*mL;
+        double qb = 2.0*mL*dL - (double)bK*mR;
+        double qc = dL*dL - (double)bK*dR;
+        if (fabs(qa)<MATH_EPS){
+            double x=(fabs(qb)>MATH_EPS)?-qc/qb:0.0;
+            formatFraction(nb,sizeof(nb),x);
+            snprintf(lb,sizeof(lb),"x = %s",nb); printLine(lb,COL_GREEN);
+            found=true; goto logEqDone;
+        }
+        double disc=qb*qb-4.0*qa*qc;
+        if (disc<-MATH_EPS){printLine("No real solution",COL_RED);waitContinue();return;}
+        double sq=sqrt(fabs(disc));
+        double roots[2]={(-qb+sq)/(2.0*qa),(-qb-sq)/(2.0*qa)};
+        for (int i=0;i<2;i++) {
+            double x=roots[i];
+            if (mL*x+dL>MATH_EPS && mR*x+dR>MATH_EPS) {
+                formatFraction(nb,sizeof(nb),x);
+                snprintf(lb,sizeof(lb),"x = %s",nb); printLine(lb,COL_GREEN);
+                found=true;
+            }
+        }
+    } else {
+        printLine("cL, cR must each be 1 or 2", COL_ORANGE);
+        printLine("Combine logs first if >2", COL_GRAY);
+    }
+
+    logEqDone:
+    if (!found && gCurrentLine < MAX_LINES-1)
+        printLine("No valid solution", COL_RED);
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   5. NESTED LOG = 0
+   Handles 1, 2, or 3 levels of nesting.
+
+   Level 3:  log_a(log_b(log_c(x))) = 0
+     step 1: log_b(log_c(x)) = 1   [a^0 = 1]
+     step 2: log_c(x) = b           [b^1 = b]
+     step 3: x = c^b
+
+   Also solves a SYSTEM of three simultaneous
+   nested-log-zero equations (as in 2018 Q18):
+     log_a1(log_b1(log_c1(x))) = 0  →  x = c1^b1
+     log_a2(log_b2(log_c2(y))) = 0  →  y = c2^b2
+     log_a3(log_b3(log_c3(z))) = 0  →  z = c3^b3
+   ───────────────────────────────────────────── */
+static void solveNestedLogZero(void)
+{
+    RESET_CANCEL();
+    startScreen("NESTED LOG = 0", "[CLEAR] Back");
+    printSubheader("Choose mode:");
+    printBlank();
+
+    printLine("1: Single equation", COL_BLACK);
+    printLine("2: System (3 eqs, 2018 Q18)", COL_BLACK);
+    blit();
+    uint8_t mc;
+    do { mc=waitForKey(); }
+    while(mc!=sk_1&&mc!=sk_2&&mc!=sk_Clear);
+    if (mc==sk_Clear){gUserCancelled=true;return;}
+
+    startScreen("NESTED LOG = 0", "[CLEAR] Back");
+    printSubheader("Enter bases:");
+    printBlank();
+
+    char lb[52], nb[28];
+
+    if (mc==sk_1) {
+        /* Single equation: choose 1-3 nesting levels */
+        printLine("Nesting levels (1/2/3):", COL_NAVY);
+        blit();
+        uint8_t lv;
+        do { lv=waitForKey(); }
+        while(lv!=sk_1&&lv!=sk_2&&lv!=sk_3&&lv!=sk_Clear);
+        if (lv==sk_Clear){gUserCancelled=true;return;}
+
+        double a=0,b=0,c=0;
+        if (lv>=sk_1){a=inputNumber("Outer base a = ");CHECK_CANCEL;}
+        if (lv>=sk_2){b=inputNumber("Mid   base b = ");CHECK_CANCEL;}
+        if (lv>=sk_3){c=inputNumber("Inner base c = ");CHECK_CANCEL;}
+
+        printDivider();
+
+        if (lv==sk_1) {
+            printLine("log_a(x)=0 → x=1",COL_GRAY);
+            printLine("x = 1",COL_GREEN);
+        } else if (lv==sk_2) {
+            printLine("Inner log = 1 → x = b",COL_GRAY);
+            formatNumber(nb,sizeof(nb),b);
+            snprintf(lb,sizeof(lb),"x = %s",nb); printLine(lb,COL_GREEN);
+        } else {
+            printLine("x = c^b",COL_GRAY);
+            char rStr[20]; fmtPow(rStr,sizeof(rStr),c,b);
+            snprintf(lb,sizeof(lb),"x = %g^%g = %s",c,b,rStr);
+            printLine(lb,COL_GREEN);
+            float fv=rPowBase(c,b);
+            formatFraction(nb,sizeof(nb),(double)fv);
+            if(strcmp(nb,rStr)!=0){
+                snprintf(lb,sizeof(lb),"  = %s",nb); printLine(lb,COL_GREEN);
+            }
+        }
+
+    } else {
+        /* System of 3 triple-nested equations */
+        printLine("Eq1: log_a1(log_b1(log_c1(x)))=0", COL_NAVY);
+        double a1=inputNumber("a1=");CHECK_CANCEL;
+        double b1=inputNumber("b1=");CHECK_CANCEL;
+        double c1=inputNumber("c1=");CHECK_CANCEL;
+
+        printLine("Eq2: log_a2(log_b2(log_c2(y)))=0", COL_NAVY);
+        double a2=inputNumber("a2=");CHECK_CANCEL;
+        double b2=inputNumber("b2=");CHECK_CANCEL;
+        double c2=inputNumber("c2=");CHECK_CANCEL;
+
+        printLine("Eq3: log_a3(log_b3(log_c3(z)))=0", COL_NAVY);
+        double a3=inputNumber("a3=");CHECK_CANCEL;
+        double b3=inputNumber("b3=");CHECK_CANCEL;
+        double c3=inputNumber("c3=");CHECK_CANCEL;
+
+        (void)a1;(void)a2;(void)a3; /* outer base cancels */
+
+        printDivider();
+
+        char rStr[20];
+        fmtPow(rStr,sizeof(rStr),c1,b1);
+        snprintf(lb,sizeof(lb),"x = %g^%g = %s",c1,b1,rStr); printLine(lb,COL_GREEN);
+
+        fmtPow(rStr,sizeof(rStr),c2,b2);
+        snprintf(lb,sizeof(lb),"y = %g^%g = %s",c2,b2,rStr); printLine(lb,COL_GREEN);
+
+        fmtPow(rStr,sizeof(rStr),c3,b3);
+        snprintf(lb,sizeof(lb),"z = %g^%g = %s",c3,b3,rStr); printLine(lb,COL_GREEN);
+
+        float fx=rPowBase(c1,b1);
+        float fy=rPowBase(c2,b2);
+        float fz=rPowBase(c3,b3);
+        formatFraction(nb,sizeof(nb),(double)(fx+fy+fz));
+        snprintf(lb,sizeof(lb),"x+y+z = %s",nb); printLine(lb,COL_BLACK);
+    }
+
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   6. EXPO-LOG COMBO  (u-substitution)
+   b^x + k*b^(−x) = c
+   Let u = b^x (u>0):  u^2 − c·u + k = 0
+   Solve quadratic → each positive u:
+     x = log_b(u)
+   If base=10, also shows "x = log(k)".
+
+   Example: 100^x − 12·100^(−x) = 4
+     Base=100, k=−12, c=4
+     u=6 → x=log100(6) = log(sqrt(6))
+   ───────────────────────────────────────────── */
+static void solveExpoLogCombo(void)
+{
+    RESET_CANCEL();
+    startScreen("EXPO-LOG COMBO", "[CLEAR] Back");
+    printSubheader("b^x + k*b^(-x) = c");
+    printBlank();
+
+    printLine("(negative k for minus term)", COL_GRAY);
+    double base = inputNumber("Base b  = "); CHECK_CANCEL;
+    double k    = inputNumber("Coeff k = "); CHECK_CANCEL;
+    double c    = inputNumber("RHS c   = "); CHECK_CANCEL;
+    printDivider();
+
+    char lb[52], nb[28], bl[12];
+    baseLabel(bl,sizeof(bl),base);
+
+    if (base<=0||fabs(base-1.0)<0.001) {
+        printLine("Invalid base",COL_RED); waitContinue(); return;
+    }
+
+    /* u^2 - cu + k = 0 */
+    double disc = c*c - 4.0*k;
+    if (disc<-MATH_EPS){printLine("No real u (disc<0)",COL_RED);waitContinue();return;}
+
+    double sq=sqrt(fabs(disc));
+    double u[2]={(c+sq)/2.0,(c-sq)/2.0};
+    bool found=false;
+
+    for (int i=0;i<2;i++) {
+        if (u[i]<=MATH_EPS) continue;
+
+        /* x = log_base(u) */
+        char xStr[20]; fmtLog(xStr,sizeof(xStr),base,u[i]);
+        float xfloat = rLogBase(base,u[i]);
+
+        formatFraction(nb,sizeof(nb),(double)xfloat);
+        if (strcmp(nb,xStr)==0)
+            snprintf(lb,sizeof(lb),"x = %s",xStr);
+        else
+            snprintf(lb,sizeof(lb),"x = %s = %s",nb,xStr);
+        printLine(lb,COL_GREEN);
+
+        /* For base=10: problem often asks "x = log(k), find k" */
+        if (fabs(base-10.0)<0.01) {
+            /* u = 10^x = k (but only if x = log10(k) makes u=k) */
+            /* More useful: show u in sqrt form */
+            char sf[24]; formatSqrtForm(sf,sizeof(sf),u[i]);
+            snprintf(lb,sizeof(lb),"  (u=%g, x=log(%s))",u[i],sf);
+            printLine(lb,COL_BLACK);
+        }
+        found=true;
+    }
+    if (!found) printLine("No positive u",COL_RED);
+    waitContinue();
+}
+
+/* ─────────────────────────────────────────────
+   LOGARITHMS MENU
+   ───────────────────────────────────────────── */
+static void menuLogarithms(void)
+{
+    const char *options[] = {
+        "Evaluate log_b(x)",
+        "Solve log_b(x) = c",
+        "Exponential Equation",
+        "Log Equation",
+        "Nested Log = 0",
+        "Expo-Log Combo",
+        "Back"
+    };
+    int sel;
+    while ((sel=showMenu("LOG & EXPONENTIALS", options, 7)) >= 0) {
+        switch (sel) {
+            case 0: solveEvalLog();       break;
+            case 1: solveFindXLog();      break;
+            case 2: solveExpEquation();   break;
+            case 3: solveLogEquation();   break;
+            case 4: solveNestedLogZero(); break;
+            case 5: solveExpoLogCombo();  break;
+            case 6: return;
+        }
+    }
+}
+
 /* ─────────────────────────────────────────────
    ADVANCED SERIES SUB-MENU
    ───────────────────────────────────────────── */
@@ -5777,12 +6276,13 @@ static void runMainMenu(void)
         "Number Theory",
         "Theory of Equations",
         "Sequences & Series",
+        "Log and Exponential",
         "Formulas & Reference",
         "Quit"
     };
     int sel;
     for (;;) {
-        sel = showMenu("MATH SOLVER CE", options, 6);
+        sel = showMenu("MATH SOLVER CE", options, 7);
         if (sel < 0 || sel == 6) break;
         switch (sel) {
             case 0: menuEquationsAndInequalities(); break;
@@ -5790,8 +6290,9 @@ static void runMainMenu(void)
             case 2: menuNumberTheory(); break;
             case 3: menuTheoryOfEquations(); break;
             case 4: menuSequencesAndSeries(); break;
-            case 5: menuReference();    break;
-            case 6: return;
+            case 5: menuLogarithms();    break;
+            case 6: menuReference();break;
+            case 7: return;
         }
     }
 }
@@ -5812,7 +6313,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.59 ", COL_NAVY);
+    printLine("MathSolverCE  v2.6 ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();
