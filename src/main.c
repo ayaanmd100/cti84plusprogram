@@ -1,5 +1,5 @@
 /*
- * MathSolverCE  v2.6
+ * MathSolverCE  v2.61
  * TI-84 Plus CE  |  CE C/C++ Toolchain
  *
  * Menus:
@@ -82,6 +82,9 @@ static const uint16_t kPalette[] = {
 
 static const double MATH_EPS = 1e-9;
 static const char  *kOpStr[5] = { "<", "<=", ">", ">=", "=" };
+/* Shared display buffers — never used across a function call boundary */
+static char gLineBuf[52];
+static char gNb[28];
 
 /* Current body row (0-based), reset by startScreen() */
 static int gCurrentLine = 0;
@@ -636,7 +639,76 @@ static void formatSqrtForm(char *buf, size_t sz, double val)
 
     formatNumber(buf, sz, val); /* decimal fallback */
 }
+/* ── Shared real_t temporaries — static to keep them off the stack ── */
+static real_t s_rA, s_rB, s_rC, s_rD, s_rRes;
 
+static float rLogBase(double b, double x)
+{
+    s_rA = os_FloatToReal((float)x);
+    if (fabs(b) < MATH_EPS) {
+        s_rRes = os_RealLog(&s_rA);
+        return os_RealToFloat(&s_rRes);
+    }
+    s_rB   = os_FloatToReal((float)b);
+    s_rC   = os_RealLog(&s_rA);          /* ln(x) */
+    s_rD   = os_RealLog(&s_rB);          /* ln(b) */
+    s_rRes = os_RealDiv(&s_rC, &s_rD);
+    return os_RealToFloat(&s_rRes);
+}
+
+static float rPowBase(double b, double e)
+{
+    s_rA = os_FloatToReal((float)e);
+    if (fabs(b) < MATH_EPS) {
+        s_rRes = os_RealExp(&s_rA);
+        return os_RealToFloat(&s_rRes);
+    }
+    s_rB   = os_FloatToReal((float)b);
+    s_rRes = os_RealPow(&s_rB, &s_rA);
+    return os_RealToFloat(&s_rRes);
+}
+
+static void fmtLog(char *buf, size_t sz, double b, double x)
+{
+    s_rA = os_FloatToReal((float)x);
+    if (fabs(b) < MATH_EPS) {
+        s_rRes = os_RealLog(&s_rA);
+    } else {
+        s_rB   = os_FloatToReal((float)b);
+        s_rC   = os_RealLog(&s_rA);      /* ln(x) */
+        s_rD   = os_RealLog(&s_rB);      /* ln(b) */
+        s_rRes = os_RealDiv(&s_rC, &s_rD);
+    }
+    int8_t maxLen = (int8_t)(sz > 15 ? 14 : (int8_t)sz - 1);
+    os_RealToStr(buf, &s_rRes, maxLen, 1, -1);
+    buf[sz - 1] = '\0';
+}
+
+static void fmtPow(char *buf, size_t sz, double b, double e)
+{
+    s_rA = os_FloatToReal((float)e);
+    if (fabs(b) < MATH_EPS) {
+        s_rRes = os_RealExp(&s_rA);
+    } else {
+        s_rB   = os_FloatToReal((float)b);
+        s_rRes = os_RealPow(&s_rB, &s_rA);
+    }
+    int8_t maxLen = (int8_t)(sz > 15 ? 14 : (int8_t)sz - 1);
+    os_RealToStr(buf, &s_rRes, maxLen, 1, -1);
+    buf[sz - 1] = '\0';
+}
+/* Human-readable base label: "ln", "log", "log2", "log_N". */
+static void baseLabel(char *buf, size_t sz, double b)
+{
+    if      (fabs(b)       < MATH_EPS) snprintf(buf, sz, "ln");
+    else if (fabs(b - 10.0) < 0.01)   snprintf(buf, sz, "log");
+    else if (fabs(b -  2.0) < 0.01)   snprintf(buf, sz, "log2");
+    else if (fabs(b -  3.0) < 0.01)   snprintf(buf, sz, "log3");
+    else {
+        char bb[12]; formatNumber(bb, sizeof(bb), b);
+        snprintf(buf, sz, "log_%s", bb);
+    }
+}
 
 /* ═══════════════════════════════════════════════
    MENU ENGINE
@@ -5483,7 +5555,9 @@ static void solveEvalLog(void)
     double x = inputNumber("x      = "); CHECK_CANCEL;
     printDivider();
 
-    char lb[52], nb[28], bl[12];
+    char bl[12];
+    #define lb gLineBuf
+    #define nb gNb
     baseLabel(bl, sizeof(bl), b);
 
     if ((fabs(b) > MATH_EPS && (b <= 0 || fabs(b-1.0) < 0.001)) || x <= 0) {
@@ -5506,7 +5580,8 @@ static void solveEvalLog(void)
         snprintf(lb, sizeof(lb), "= %s (frac)", nb);
         printLine(lb, COL_GREEN);
     }
-
+    #undef lb
+    #undef nb
     waitContinue();
 }
 
@@ -5526,7 +5601,9 @@ static void solveFindXLog(void)
     double c = inputNumber("RHS c  = "); CHECK_CANCEL;
     printDivider();
 
-    char lb[52], nb[28], bl[12];
+    char bl[12];
+    #define lb gLineBuf
+    #define nb gNb
     baseLabel(bl, sizeof(bl), b);
 
     snprintf(lb, sizeof(lb), "%s(x)=%g  =>  x =", bl, c);
@@ -5549,7 +5626,8 @@ static void solveFindXLog(void)
     if (strcmp(nb, dec) != 0 && strcmp(nb, rStr) != 0) {
         snprintf(lb, sizeof(lb), "= %s (exact)", nb); printLine(lb, COL_GREEN);
     }
-
+  #undef lb
+    #undef nb
     waitContinue();
 }
 
@@ -5581,19 +5659,20 @@ static void solveExpEquation(void)
     double c2 = inputNumber("c2 = "); CHECK_CANCEL;
 
     printDivider();
-    char lb[52], nb[28];
+       #define lb gLineBuf
+    #define nb gNb
 
     if (a<=0||b<=0||fabs(a-1.0)<0.001||fabs(b-1.0)<0.001) {
         printLine("Bases must be >0, !=1", COL_RED);
         waitContinue(); return;
     }
 
-    real_t rA  = os_FloatToReal((float)a);
-    real_t rB  = os_FloatToReal((float)b);
-    real_t lnA = os_RealLog(&rA);
-    real_t lnB = os_RealLog(&rB);
-    float flnA = os_RealToFloat(&lnA);
-    float flnB = os_RealToFloat(&lnB);
+    s_rA = os_FloatToReal((float)a);
+    s_rB = os_FloatToReal((float)b);
+    s_rC = os_RealLog(&s_rA);   /* ln(a) */
+    s_rD = os_RealLog(&s_rB);   /* ln(b) */
+    float flnA = os_RealToFloat(&s_rC);
+    float flnB = os_RealToFloat(&s_rD);
 
     double coeffX = m1*(double)flnA - m2*(double)flnB;
     double rhsV   = c2*(double)flnB - c1*(double)flnA;
@@ -5612,7 +5691,8 @@ static void solveExpEquation(void)
     if (strcmp(nb, dec) != 0) {
         snprintf(lb, sizeof(lb), "  = %s", dec); printLine(lb, COL_BLACK);
     }
-
+   #undef lb
+    #undef nb
     waitContinue();
 }
 
@@ -5638,226 +5718,182 @@ static void solveLogEquation(void)
     printSubheader("A+cL*log_b(mLx+dL)=B+cR*...");
     printBlank();
 
-    double base = inputNumber("Base b   = "); CHECK_CANCEL;
+    /* Screen 1: base + LHS */
+    double base = inputNumber("Base b  = "); CHECK_CANCEL;
+    double A    = inputNumber("LHS A   = "); CHECK_CANCEL;
+    double cL   = inputNumber("LHS cL  = "); CHECK_CANCEL;
+    double mL   = inputNumber("LHS mL  = "); CHECK_CANCEL;
+    double dL   = inputNumber("LHS dL  = "); CHECK_CANCEL;
 
-    printLine("LHS: A + cL * log(mL*x+dL)", COL_NAVY);
-    double A  = inputNumber("  A   = "); CHECK_CANCEL;
-    double cL = inputNumber("  cL  = "); CHECK_CANCEL;
-    double mL = inputNumber("  mL  = "); CHECK_CANCEL;
-    double dL = inputNumber("  dL  = "); CHECK_CANCEL;
+    /* Screen 2: RHS — new screen to free visual space */
+    startScreen("LOG EQUATION RHS", "[CLEAR] Back");
+    printSubheader("B + cR * log_b(mR*x + dR)");
+    printBlank();
 
-    printLine("RHS: B + cR * log(mR*x+dR)", COL_NAVY);
-    double B  = inputNumber("  B   = "); CHECK_CANCEL;
-    double cR = inputNumber("  cR  = "); CHECK_CANCEL;
-    double mR = inputNumber("  mR  = "); CHECK_CANCEL;
-    double dR = inputNumber("  dR  = "); CHECK_CANCEL;
+    double B    = inputNumber("RHS B   = "); CHECK_CANCEL;
+    double cR   = inputNumber("RHS cR  = "); CHECK_CANCEL;
+    double mR   = inputNumber("RHS mR  = "); CHECK_CANCEL;
+    double dR   = inputNumber("RHS dR  = "); CHECK_CANCEL;
 
     printDivider();
-    char lb[52], nb[28];
 
-    if (base<=0||fabs(base-1.0)<0.001) {
+    /* Reuse static nb/lb to avoid more stack */
+    static char lb[52], nb[28];
+
+    if (base <= 0.0 || fabs(base - 1.0) < 0.001) {
         printLine("Invalid base", COL_RED); waitContinue(); return;
     }
 
-    /* bK = base^(B-A) */
-    float bK = rPowBase(base, B - A);
+    float bK = rPowBase(base, B - A);   /* base^(B-A) */
 
     bool found = false;
 
-    /* ── cL=1, cR=1: mLx+dL = bK*(mRx+dR) → linear ── */
-    if (fabs(cL-1.0)<0.1 && fabs(cR-1.0)<0.1) {
-        double coeff = mL - (double)bK*mR;
-        double rhsv  = (double)bK*dR - dL;
-        if (fabs(coeff)<MATH_EPS) {
-            printLine(fabs(rhsv)<MATH_EPS?"All x valid":"No solution",
-                      fabs(rhsv)<MATH_EPS?COL_GREEN:COL_RED);
+    /* cL=1, cR=1 → linear */
+    if (fabs(cL - 1.0) < 0.1 && fabs(cR - 1.0) < 0.1) {
+        double coeff = mL - (double)bK * mR;
+        double rhsv  = (double)bK * dR - dL;
+        if (fabs(coeff) < MATH_EPS) {
+            printLine(fabs(rhsv) < MATH_EPS ? "All x valid" : "No solution",
+                      fabs(rhsv) < MATH_EPS ? COL_GREEN    : COL_RED);
             waitContinue(); return;
         }
         double x = rhsv / coeff;
-        if (mL*x+dL<=0||mR*x+dR<=0) {
-            printLine("Solution rejected", COL_RED);
-            printLine("(log arg <= 0)", COL_ORANGE);
+        if (mL * x + dL <= 0.0 || mR * x + dR <= 0.0) {
+            printLine("Solution rejected (log arg<=0)", COL_RED);
         } else {
-            formatFraction(nb,sizeof(nb),x);
-            snprintf(lb,sizeof(lb),"x = %s",nb); printLine(lb,COL_GREEN);
-            found=true;
+            formatFraction(nb, sizeof(nb), x);
+            snprintf(lb, sizeof(lb), "x = %s", nb); printLine(lb, COL_GREEN);
+            found = true;
         }
 
-    /* ── cL=1, cR=2: mLx+dL = bK*(mRx+dR)^2 → quadratic ── */
-    } else if (fabs(cL-1.0)<0.1 && fabs(cR-2.0)<0.1) {
-        double qa = (double)bK*mR*mR;
-        double qb = 2.0*(double)bK*mR*dR - mL;
-        double qc = (double)bK*dR*dR - dL;
-        if (fabs(qa)<MATH_EPS) {
-            double x = (fabs(qb)>MATH_EPS)?-qc/qb:0.0;
-            formatFraction(nb,sizeof(nb),x);
-            snprintf(lb,sizeof(lb),"x = %s",nb); printLine(lb,COL_GREEN);
-            found=true; goto logEqDone;
-        }
-        double disc = qb*qb - 4.0*qa*qc;
-        if (disc<-MATH_EPS){printLine("No real solution",COL_RED);waitContinue();return;}
-        double sq=sqrt(fabs(disc));
-        double roots[2]={(-qb+sq)/(2.0*qa),(-qb-sq)/(2.0*qa)};
-        double sumV=0.0; int cnt=0;
-        for (int i=0;i<2;i++) {
-            double x=roots[i];
-            if (mL*x+dL>MATH_EPS && mR*x+dR>MATH_EPS) {
-                formatFraction(nb,sizeof(nb),x);
-                snprintf(lb,sizeof(lb),"x = %s",nb); printLine(lb,COL_GREEN);
-                sumV+=x; cnt++; found=true;
+    /* cL=1, cR=2 → quadratic */
+    } else if (fabs(cL - 1.0) < 0.1 && fabs(cR - 2.0) < 0.1) {
+        double qa   = (double)bK * mR * mR;
+        double qb   = 2.0 * (double)bK * mR * dR - mL;
+        double qc   = (double)bK * dR * dR - dL;
+        double disc = (fabs(qa) < MATH_EPS) ? 0.0 : qb * qb - 4.0 * qa * qc;
+        if (fabs(qa) < MATH_EPS) {
+            double x = (fabs(qb) > MATH_EPS) ? -qc / qb : 0.0;
+            formatFraction(nb, sizeof(nb), x);
+            snprintf(lb, sizeof(lb), "x = %s", nb); printLine(lb, COL_GREEN);
+            found = true;
+        } else if (disc < -MATH_EPS) {
+            printLine("No real solution", COL_RED);
+        } else {
+            double sq = sqrt(fabs(disc));
+            double sumV = 0.0; int cnt = 0;
+            for (int i = 0; i < 2; i++) {
+                double x = (i == 0) ? (-qb + sq)/(2.0*qa) : (-qb - sq)/(2.0*qa);
+                if (mL*x+dL > MATH_EPS && mR*x+dR > MATH_EPS) {
+                    formatFraction(nb, sizeof(nb), x);
+                    snprintf(lb, sizeof(lb), "x = %s", nb); printLine(lb, COL_GREEN);
+                    sumV += x; cnt++; found = true;
+                }
+            }
+            if (cnt == 2) {
+                formatFraction(nb, sizeof(nb), sumV);
+                snprintf(lb, sizeof(lb), "Sum = %s", nb); printLine(lb, COL_BLACK);
             }
         }
-        if (cnt==2) {
-            formatFraction(nb,sizeof(nb),sumV);
-            snprintf(lb,sizeof(lb),"Sum of sols = %s",nb); printLine(lb,COL_BLACK);
-        }
 
-    /* ── cL=2, cR=1: (mLx+dL)^2 = bK*(mRx+dR) → quadratic ── */
-    } else if (fabs(cL-2.0)<0.1 && fabs(cR-1.0)<0.1) {
-        double qa = mL*mL;
-        double qb = 2.0*mL*dL - (double)bK*mR;
-        double qc = dL*dL - (double)bK*dR;
-        if (fabs(qa)<MATH_EPS){
-            double x=(fabs(qb)>MATH_EPS)?-qc/qb:0.0;
-            formatFraction(nb,sizeof(nb),x);
-            snprintf(lb,sizeof(lb),"x = %s",nb); printLine(lb,COL_GREEN);
-            found=true; goto logEqDone;
-        }
-        double disc=qb*qb-4.0*qa*qc;
-        if (disc<-MATH_EPS){printLine("No real solution",COL_RED);waitContinue();return;}
-        double sq=sqrt(fabs(disc));
-        double roots[2]={(-qb+sq)/(2.0*qa),(-qb-sq)/(2.0*qa)};
-        for (int i=0;i<2;i++) {
-            double x=roots[i];
-            if (mL*x+dL>MATH_EPS && mR*x+dR>MATH_EPS) {
-                formatFraction(nb,sizeof(nb),x);
-                snprintf(lb,sizeof(lb),"x = %s",nb); printLine(lb,COL_GREEN);
-                found=true;
+    /* cL=2, cR=1 → quadratic */
+    } else if (fabs(cL - 2.0) < 0.1 && fabs(cR - 1.0) < 0.1) {
+        double qa   = mL * mL;
+        double qb   = 2.0 * mL * dL - (double)bK * mR;
+        double qc   = dL * dL - (double)bK * dR;
+        double disc = (fabs(qa) < MATH_EPS) ? 0.0 : qb * qb - 4.0 * qa * qc;
+        if (fabs(qa) < MATH_EPS) {
+            double x = (fabs(qb) > MATH_EPS) ? -qc / qb : 0.0;
+            formatFraction(nb, sizeof(nb), x);
+            snprintf(lb, sizeof(lb), "x = %s", nb); printLine(lb, COL_GREEN);
+            found = true;
+        } else if (disc < -MATH_EPS) {
+            printLine("No real solution", COL_RED);
+        } else {
+            double sq = sqrt(fabs(disc));
+            for (int i = 0; i < 2; i++) {
+                double x = (i == 0) ? (-qb+sq)/(2.0*qa) : (-qb-sq)/(2.0*qa);
+                if (mL*x+dL > MATH_EPS && mR*x+dR > MATH_EPS) {
+                    formatFraction(nb, sizeof(nb), x);
+                    snprintf(lb, sizeof(lb), "x = %s", nb); printLine(lb, COL_GREEN);
+                    found = true;
+                }
             }
         }
     } else {
-        printLine("cL, cR must each be 1 or 2", COL_ORANGE);
-        printLine("Combine logs first if >2", COL_GRAY);
+        printLine("cL and cR must be 1 or 2", COL_ORANGE);
     }
 
-    logEqDone:
-    if (!found && gCurrentLine < MAX_LINES-1)
+    if (!found && gCurrentLine < MAX_LINES - 1)
         printLine("No valid solution", COL_RED);
     waitContinue();
 }
-
-/* ─────────────────────────────────────────────
-   5. NESTED LOG = 0
-   Handles 1, 2, or 3 levels of nesting.
-
-   Level 3:  log_a(log_b(log_c(x))) = 0
-     step 1: log_b(log_c(x)) = 1   [a^0 = 1]
-     step 2: log_c(x) = b           [b^1 = b]
-     step 3: x = c^b
-
-   Also solves a SYSTEM of three simultaneous
-   nested-log-zero equations (as in 2018 Q18):
-     log_a1(log_b1(log_c1(x))) = 0  →  x = c1^b1
-     log_a2(log_b2(log_c2(y))) = 0  →  y = c2^b2
-     log_a3(log_b3(log_c3(z))) = 0  →  z = c3^b3
-   ───────────────────────────────────────────── */
+/*
+ * NESTED LOG = 0
+ * log_a(log_b(log_c(x))) = 0  →  x = c^b
+ * Optionally solve three simultaneously (2018 Q18).
+ */
 static void solveNestedLogZero(void)
 {
     RESET_CANCEL();
     startScreen("NESTED LOG = 0", "[CLEAR] Back");
-    printSubheader("Choose mode:");
+    printSubheader("log_a(log_b(log_c(x)))=0");
     printBlank();
-
-    printLine("1: Single equation", COL_BLACK);
-    printLine("2: System (3 eqs, 2018 Q18)", COL_BLACK);
+    printLine("How many equations?",        COL_NAVY);
+    printLine("1: one   3: system of three", COL_ORANGE);
     blit();
-    uint8_t mc;
-    do { mc=waitForKey(); }
-    while(mc!=sk_1&&mc!=sk_2&&mc!=sk_Clear);
-    if (mc==sk_Clear){gUserCancelled=true;return;}
 
-    startScreen("NESTED LOG = 0", "[CLEAR] Back");
-    printSubheader("Enter bases:");
+    uint8_t mc;
+    do { mc = waitForKey(); }
+    while (mc != sk_1 && mc != sk_3 && mc != sk_Clear);
+    if (mc == sk_Clear) { gUserCancelled = true; return; }
+
+    int eqs = (mc == sk_3) ? 3 : 1;
+
+    /* For each equation: result is x = c^b (outer base cancels) */
+    double bArr[3] = {0}, cArr[3] = {0};
+    char prompt[12];
+
+    for (int i = 0; i < eqs; i++) {
+        char titleBuf[28];
+        snprintf(titleBuf, sizeof(titleBuf),
+                 eqs == 1 ? "NESTED LOG = 0" : "EQ %d of 3", i + 1);
+        startScreen(titleBuf, "[CLEAR] Back");
+        printSubheader("Enter b and c (a cancels)");
+        printBlank();
+
+        snprintf(prompt, sizeof(prompt), "b%d = ", i + 1);
+        bArr[i] = inputNumber(prompt); CHECK_CANCEL;
+        snprintf(prompt, sizeof(prompt), "c%d = ", i + 1);
+        cArr[i] = inputNumber(prompt); CHECK_CANCEL;
+    }
+
+    startScreen("NESTED LOG = 0", "[ENTER] Done");
+    printSubheader("x = c^b  (outer base cancels)");
     printBlank();
 
-    char lb[52], nb[28];
+    char rStr[20], lb[52];
+    double total = 0.0;
+    static const char *varNames[3] = {"x","y","z"};
 
-    if (mc==sk_1) {
-        /* Single equation: choose 1-3 nesting levels */
-        printLine("Nesting levels (1/2/3):", COL_NAVY);
-        blit();
-        uint8_t lv;
-        do { lv=waitForKey(); }
-        while(lv!=sk_1&&lv!=sk_2&&lv!=sk_3&&lv!=sk_Clear);
-        if (lv==sk_Clear){gUserCancelled=true;return;}
+    for (int i = 0; i < eqs; i++) {
+        fmtPow(rStr, sizeof(rStr), cArr[i], bArr[i]);
+        snprintf(lb, sizeof(lb), "%s = %g^%g = %s",
+                 varNames[i], cArr[i], bArr[i], rStr);
+        printLine(lb, COL_GREEN);
+        total += (double)rPowBase(cArr[i], bArr[i]);
+    }
 
-        double a=0,b=0,c=0;
-        if (lv>=sk_1){a=inputNumber("Outer base a = ");CHECK_CANCEL;}
-        if (lv>=sk_2){b=inputNumber("Mid   base b = ");CHECK_CANCEL;}
-        if (lv>=sk_3){c=inputNumber("Inner base c = ");CHECK_CANCEL;}
-
+    if (eqs == 3) {
         printDivider();
-
-        if (lv==sk_1) {
-            printLine("log_a(x)=0 → x=1",COL_GRAY);
-            printLine("x = 1",COL_GREEN);
-        } else if (lv==sk_2) {
-            printLine("Inner log = 1 → x = b",COL_GRAY);
-            formatNumber(nb,sizeof(nb),b);
-            snprintf(lb,sizeof(lb),"x = %s",nb); printLine(lb,COL_GREEN);
-        } else {
-            printLine("x = c^b",COL_GRAY);
-            char rStr[20]; fmtPow(rStr,sizeof(rStr),c,b);
-            snprintf(lb,sizeof(lb),"x = %g^%g = %s",c,b,rStr);
-            printLine(lb,COL_GREEN);
-            float fv=rPowBase(c,b);
-            formatFraction(nb,sizeof(nb),(double)fv);
-            if(strcmp(nb,rStr)!=0){
-                snprintf(lb,sizeof(lb),"  = %s",nb); printLine(lb,COL_GREEN);
-            }
-        }
-
-    } else {
-        /* System of 3 triple-nested equations */
-        printLine("Eq1: log_a1(log_b1(log_c1(x)))=0", COL_NAVY);
-        double a1=inputNumber("a1=");CHECK_CANCEL;
-        double b1=inputNumber("b1=");CHECK_CANCEL;
-        double c1=inputNumber("c1=");CHECK_CANCEL;
-
-        printLine("Eq2: log_a2(log_b2(log_c2(y)))=0", COL_NAVY);
-        double a2=inputNumber("a2=");CHECK_CANCEL;
-        double b2=inputNumber("b2=");CHECK_CANCEL;
-        double c2=inputNumber("c2=");CHECK_CANCEL;
-
-        printLine("Eq3: log_a3(log_b3(log_c3(z)))=0", COL_NAVY);
-        double a3=inputNumber("a3=");CHECK_CANCEL;
-        double b3=inputNumber("b3=");CHECK_CANCEL;
-        double c3=inputNumber("c3=");CHECK_CANCEL;
-
-        (void)a1;(void)a2;(void)a3; /* outer base cancels */
-
-        printDivider();
-
-        char rStr[20];
-        fmtPow(rStr,sizeof(rStr),c1,b1);
-        snprintf(lb,sizeof(lb),"x = %g^%g = %s",c1,b1,rStr); printLine(lb,COL_GREEN);
-
-        fmtPow(rStr,sizeof(rStr),c2,b2);
-        snprintf(lb,sizeof(lb),"y = %g^%g = %s",c2,b2,rStr); printLine(lb,COL_GREEN);
-
-        fmtPow(rStr,sizeof(rStr),c3,b3);
-        snprintf(lb,sizeof(lb),"z = %g^%g = %s",c3,b3,rStr); printLine(lb,COL_GREEN);
-
-        float fx=rPowBase(c1,b1);
-        float fy=rPowBase(c2,b2);
-        float fz=rPowBase(c3,b3);
-        formatFraction(nb,sizeof(nb),(double)(fx+fy+fz));
-        snprintf(lb,sizeof(lb),"x+y+z = %s",nb); printLine(lb,COL_BLACK);
+        char nb[28];
+        formatFraction(nb, sizeof(nb), total);
+        snprintf(lb, sizeof(lb), "x+y+z = %s", nb);
+        printLine(lb, COL_BLACK);
     }
 
     waitContinue();
 }
-
 /* ─────────────────────────────────────────────
    6. EXPO-LOG COMBO  (u-substitution)
    b^x + k*b^(−x) = c
@@ -5883,7 +5919,9 @@ static void solveExpoLogCombo(void)
     double c    = inputNumber("RHS c   = "); CHECK_CANCEL;
     printDivider();
 
-    char lb[52], nb[28], bl[12];
+        char bl[12];
+    #define lb gLineBuf
+    #define nb gNb
     baseLabel(bl,sizeof(bl),base);
 
     if (base<=0||fabs(base-1.0)<0.001) {
@@ -5923,6 +5961,8 @@ static void solveExpoLogCombo(void)
         found=true;
     }
     if (!found) printLine("No positive u",COL_RED);
+    #undef lb
+    #undef nb
     waitContinue();
 }
 
@@ -5931,7 +5971,7 @@ static void solveExpoLogCombo(void)
    ───────────────────────────────────────────── */
 static void menuLogarithms(void)
 {
-    const char *options[] = {
+    static const char *options[] = {
         "Evaluate log_b(x)",
         "Solve log_b(x) = c",
         "Exponential Equation",
@@ -5959,7 +5999,7 @@ static void menuLogarithms(void)
    ───────────────────────────────────────────── */
 static void menuAdvancedSeries(void)
 {
-    const char *options[] = {
+    static const char *options[] = {
         "AP: Two Given Terms",
         "Consecutive Odd/Even",
         "Sum of Arith. Means",
@@ -6013,7 +6053,7 @@ static void menuAdvancedSeries(void)
 /* ── Menu ── */
 static void menuSequencesAndSeries(void)
 {
-    const char *options[] = {
+    static const char *options[] = {
         "Arithmetic Sequence",
         "Geometric Sequence",
         "Arithmetic Means",
@@ -6124,7 +6164,7 @@ static void showRefGeometry(void)
 
 static void menuTheoryOfEquations(void)
 {
-    const char *options[] = {
+    static const char *options[] = {
         "Remainder/Factor Thm",
         "Multiple Factors",
         "Poly from Roots",
@@ -6153,7 +6193,7 @@ static void menuTheoryOfEquations(void)
 
 static void menuEquationsAndInequalities(void)
 {
-    const char *options[] = {
+    static const char *options[] = {
         "Linear Equation",
         "Quadratic Equation",
         "Linear Inequality",
@@ -6176,7 +6216,7 @@ static void menuEquationsAndInequalities(void)
 
 static void menuAbsoluteValue(void)
 {
-    const char *options[] = {
+    static const char *options[] = {
         "|Ax+B| = C",
         "|Ax+B| op C",
         "||Ax+B|-C| op D",
@@ -6197,7 +6237,7 @@ static void menuAbsoluteValue(void)
 
 static void menuReference(void)
 {
-    const char *options[] = {
+   static const char *options[] = {
         "Algebra Formulas",
         "Inequality Rules",
         "Geometry Formulas",
@@ -6216,7 +6256,7 @@ static void menuReference(void)
 
 static void menuBaseConversion(void)
 {
-    const char *options[] = {
+    static const char *options[] = {
         "Base N -> Decimal",
         "Decimal -> Base N",
         "Base A -> Base B",
@@ -6237,7 +6277,7 @@ static void menuBaseConversion(void)
 
 static void menuNumberTheory(void)
 {
-    const char *options[] = {
+    static const char *options[] = {
         "Prime Factorization",
         "GCD / HCF",
         "LCM",
@@ -6270,7 +6310,7 @@ static void menuNumberTheory(void)
 
 static void runMainMenu(void)
 {
-    const char *options[] = {
+    static const char *options[] = {
         "Equations & Inequalities",
         "Absolute Value",
         "Number Theory",
@@ -6313,7 +6353,7 @@ int main(void)
     startScreen("MATH SOLVER CE", "");
     printBlank();
     printSubheader("Thank you for using");
-    printLine("MathSolverCE  v2.6 ", COL_NAVY);
+    printLine("MathSolverCE  v2.61 ", COL_NAVY);
     printBlank();
     printLine("Goodbye!", COL_ORANGE);
     blit();

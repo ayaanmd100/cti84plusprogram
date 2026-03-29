@@ -1,5 +1,5 @@
 .DS_Store
 convimg.yaml.lst
 makefile
-obj
-bin
+obj/*
+bin/*
